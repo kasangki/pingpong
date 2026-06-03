@@ -4,7 +4,9 @@ import pandas as pd
 import math
 
 
-# 0. DB 연결 함수
+# ==========================================
+# 0. 데이터베이스 연결 함수 (네온 연동 규격)
+# ==========================================
 def get_db_connection():
     return psycopg2.connect(
         host=st.secrets["postgres"]["host"],
@@ -15,7 +17,9 @@ def get_db_connection():
     )
 
 
-# 라운드 로빈 리그전 경기 순서 생성 알고리즘
+# ==========================================
+# 1. 라운드 로빈 리그전 경기 순서 생성 알고리즘
+# ==========================================
 def generate_round_robin_matches(player_names):
     names = list(player_names)
     if len(names) % 2 != 0:
@@ -32,9 +36,10 @@ def generate_round_robin_matches(player_names):
     return matches
 
 
+# 페이지 레이아웃 설정
 st.set_page_config(layout="wide")
 
-# secrets에서 타이틀을 읽어오고, 없을 경우 기본 타이틀을 사용하도록 안전하게 예외처리했습니다.
+# 타이틀 안전하게 읽어오기
 app_title = st.secrets["auth"].get("app_title", "🏓 탁구 대회 통합 관리 시스템")
 st.title(app_title)
 
@@ -48,7 +53,7 @@ if "user_role" not in st.session_state:  # "admin" 또는 "member"
 if "user_name" not in st.session_state:
     st.session_state.user_name = None
 
-# 로그인 화면 구현
+# ----------------- 로그인 화면 -----------------
 if not st.session_state.logged_in:
     st.subheader("🔑 시스템 접속을 위해 로그인해 주세요")
 
@@ -61,11 +66,11 @@ if not st.session_state.logged_in:
             phone_input = st.text_input("📱 전화번호 입력 (아이디/비밀번호 공통)", placeholder="예: 01012345678")
             if st.button("회원 로그인", use_container_width=True):
                 try:
-                    conn = get_db_connection();
+                    conn = get_db_connection()
                     cur = conn.cursor()
                     cur.execute("SELECT name FROM members WHERE phone = %s", (phone_input.strip(),))
                     res = cur.fetchone()
-                    cur.close();
+                    cur.close()
                     conn.close()
 
                     if res:
@@ -102,18 +107,17 @@ if not st.session_state.logged_in:
         st.caption("🆕 **신규 회원 가입 / 정보 등록**")
         with st.form("public_register_form", clear_on_submit=True):
             reg_name = st.text_input("이름")
-            # 1) 신규 가입 폼 기본값 8부로 수정 (index=7 이 8부에 해당)
             reg_grade = st.selectbox("본인 부수", list(range(1, 12)), index=7, format_func=lambda x: f"{x}부")
             reg_phone = st.text_input("연락처 (숫자만 입력)", placeholder="예: 01012345678")
             if st.form_submit_button("가입 및 즉시 회원 등록"):
                 if reg_name and reg_phone:
                     try:
-                        conn = get_db_connection();
+                        conn = get_db_connection()
                         cur = conn.cursor()
                         cur.execute("INSERT INTO members (name, grade, phone) VALUES (%s, %s, %s)",
                                     (reg_name, reg_grade, reg_phone.strip()))
-                        conn.commit();
-                        cur.close();
+                        conn.commit()
+                        cur.close()
                         conn.close()
                         st.success(f"✅ '{reg_name}'님 회원 등록이 완료되었습니다! 이제 로그인할 수 있습니다.")
                     except:
@@ -122,9 +126,7 @@ if not st.session_state.logged_in:
                     st.warning("이름과 연락처를 모두 입력해 주세요.")
     st.stop()
 
-# ==========================================
-# 🚪 로그아웃 버튼 탑재 (상단 바)
-# ==========================================
+# ----------------- 로그아웃 버튼 탑재 (상단 바) -----------------
 c_user, c_logout = st.columns([8, 1])
 with c_user:
     st.markdown(
@@ -145,7 +147,7 @@ tab_member, tab_manage_tour, tab_play, tab_ranking = st.tabs([
 ])
 
 # ==========================================
-# TAB 1: 회원 관리 화면
+# TAB 1: 회원 관리 화면 (관리자 전용 삭제 기능 내장)
 # ==========================================
 with tab_member:
     st.header("1. 전체 회원 등록 및 관리")
@@ -154,29 +156,70 @@ with tab_member:
         st.subheader("새 회원 추가 등록")
         with st.form("member_form_tab", clear_on_submit=True):
             m_name = st.text_input("회원 이름")
-            # 2) 메인 관리 화면의 회원 등록 폼 기본값 8부로 수정 (index=7 이 8부에 해당)
             m_grade = st.selectbox("부수", list(range(1, 12)), index=7, format_func=lambda x: f"{x}부")
             m_phone = st.text_input("연락처 (로그인 ID가 됨)")
             if st.form_submit_button("회원 저장") and m_name:
                 try:
-                    conn = get_db_connection();
+                    conn = get_db_connection()
                     cur = conn.cursor()
                     cur.execute("INSERT INTO members (name, grade, phone) VALUES (%s, %s, %s)",
                                 (m_name, m_grade, m_phone.strip()))
-                    conn.commit();
-                    cur.close();
+                    conn.commit()
+                    cur.close()
                     conn.close()
                     st.success(f"회원 '{m_name}' 등록 완료")
                     st.rerun()
                 except:
                     st.error("❌ 회원 저장 실패")
+
     with col_list:
         st.subheader("등록된 회원 명단")
         try:
             conn = get_db_connection()
             df_m = pd.read_sql("SELECT id, name, grade, phone FROM members ORDER BY id DESC", conn)
             conn.close()
-            st.dataframe(df_m, use_container_width=True, hide_index=True)
+
+            # 일반 회원일 때: 테이블 단순 조회만 노출
+            if st.session_state.user_role != "admin":
+                st.dataframe(df_m, use_container_width=True, hide_index=True)
+                st.caption("💡 회원 삭제는 관리자 계정으로 로그인 시 가능합니다.")
+
+            # 관리자 회원일 때: 행 선택 기능을 켠 인터랙티브 테이블 및 삭제 로직 가동
+            else:
+                st.markdown("🗑️ **삭제할 회원의 행을 선택한 후 하단의 삭제 버튼을 눌러주세요.**")
+                selected_rows = st.dataframe(
+                    df_m,
+                    use_container_width=True,
+                    hide_index=True,
+                    on_select="rerun",
+                    selection_mode="single-row"
+                )
+
+                clicked_index = selected_rows.get("selection", {}).get("rows", [])
+
+                if clicked_index:
+                    selected_player = df_m.iloc[clicked_index[0]]
+                    st.warning(f"⚠️ **주의: [{selected_player['name']}] 회원을 삭제하시겠습니까?**")
+
+                    if st.button(f"❌ {selected_player['name']} 회원 영구 삭제", type="primary", use_container_width=True):
+                        try:
+                            conn = get_db_connection()
+                            cur = conn.cursor()
+                            # 진행 대기 중인 인원 명단(중간 매핑 테이블)에서만 해당 아이디를 안전하게 삭제
+                            cur.execute("DELETE FROM tournament_players WHERE member_id = %s",
+                                        (int(selected_player['id']),))
+                            # 회원 정보 삭제 실행 (과거 매치 텍스트 기록은 그대로 보존됨)
+                            cur.execute("DELETE FROM members WHERE id = %s", (int(selected_player['id']),))
+                            conn.commit()
+                            cur.close()
+                            conn.close()
+
+                            st.success(f"🗑️ {selected_player['name']} 회원이 안전하게 삭제되었습니다.")
+                            st.rerun()
+                        except Exception as e:
+                            st.error(f"❌ 회원 삭제 중 오류 발생: {e}")
+                else:
+                    st.info("💡 명단에서 회원을 클릭하면 삭제 버튼이 나타납니다.")
         except:
             st.info("회원 목록이 없습니다.")
 
@@ -196,11 +239,11 @@ with tab_manage_tour:
                 t_title = st.text_input("대회 명칭", placeholder="예: 2026년 오월 리그전")
                 if st.form_submit_button("대회 생성") and t_title:
                     try:
-                        conn = get_db_connection();
+                        conn = get_db_connection()
                         cur = conn.cursor()
                         cur.execute("INSERT INTO tournaments (title) VALUES (%s)", (t_title,))
-                        conn.commit();
-                        cur.close();
+                        conn.commit()
+                        cur.close()
                         conn.close()
                         st.success(f"대회 [{t_title}]가 개설되었습니다.")
                         st.rerun()
@@ -238,12 +281,12 @@ with tab_manage_tour:
                                             format_func=lambda x: f"{x['name']} ({x['grade']}부)")
                     if st.button("🚀 대회 출전 명단에 추가"):
                         try:
-                            conn = get_db_connection();
+                            conn = get_db_connection()
                             cur = conn.cursor()
                             cur.execute("INSERT INTO tournament_players (tournament_id, member_id) VALUES (%s, %s)",
                                         (selected_t['id'], target_m['id']))
-                            conn.commit();
-                            cur.close();
+                            conn.commit()
+                            cur.close()
                             conn.close()
                             st.rerun()
                         except:
@@ -352,14 +395,14 @@ with tab_play:
                             if st.button("💾 저장", key=f"b_{group_idx}_{idx}", use_container_width=True):
                                 final_score = f"{sc1}:{sc2}" if p1 == db_p1 else f"{sc2}:{sc1}"
                                 st.session_state.db_scores[score_key] = final_score
-                                conn = get_db_connection();
+                                conn = get_db_connection()
                                 cur = conn.cursor()
                                 cur.execute(
                                     "INSERT INTO match_results (tournament_id, group_idx, match_order, player1_name, player2_name, score_text) VALUES (%s,%s,%s,%s,%s,%s) ON CONFLICT (tournament_id, group_idx, player1_name, player2_name) DO UPDATE SET score_text = EXCLUDED.score_text",
                                     (active_tour['id'], group_idx, idx + 1, db_p1, db_p2, final_score))
-                                conn.commit();
-                                cur.close();
-                                conn.close();
+                                conn.commit()
+                                cur.close()
+                                conn.close()
                                 st.rerun()
 
                     rank_data = []
@@ -467,14 +510,14 @@ with tab_play:
                             if st.button("💾 기록", key=f"tsave_{round_level}_{idx}", use_container_width=True):
                                 final_score = f"{sc1}:{sc2}" if p1 == db_p1 else f"{sc2}:{sc1}"
                                 st.session_state.db_scores[score_key] = final_score
-                                conn = get_db_connection();
+                                conn = get_db_connection()
                                 cur = conn.cursor()
                                 cur.execute(
                                     "INSERT INTO match_results (tournament_id, group_idx, match_order, player1_name, player2_name, score_text) VALUES (%s,%s,%s,%s,%s,%s) ON CONFLICT (tournament_id, group_idx, player1_name, player2_name) DO UPDATE SET score_text = EXCLUDED.score_text",
                                     (active_tour['id'], g_code, idx + 1, db_p1, db_p2, final_score))
-                                conn.commit();
-                                cur.close();
-                                conn.close();
+                                conn.commit()
+                                cur.close()
+                                conn.close()
                                 st.rerun()
 
                     total_expected_matches = len([m for m in match_pairs if m[0] != "부전승" and m[1] != "부전승"])
@@ -542,7 +585,7 @@ with tab_ranking:
                             if loser not in player_points: player_points[loser] = 0
 
                             if g_idx == max_round:
-                                player_points[winner] += 10;
+                                player_points[winner] += 10
                                 player_points[loser] += 7
                             elif g_idx == max_round - 1:
                                 player_points[loser] += 5
