@@ -147,7 +147,7 @@ tab_member, tab_manage_tour, tab_play, tab_ranking = st.tabs([
 ])
 
 # ==========================================
-# TAB 1: 회원 관리 화면 (관리자 전용 삭제 기능 내장)
+# TAB 1: 회원 관리 화면 (삭제 후 즉시 리프레시 반영)
 # ==========================================
 with tab_member:
     st.header("1. 전체 회원 등록 및 관리")
@@ -187,12 +187,14 @@ with tab_member:
             # 관리자 회원일 때: 행 선택 기능을 켠 인터랙티브 테이블 및 삭제 로직 가동
             else:
                 st.markdown("🗑️ **삭제할 회원의 행을 선택한 후 하단의 삭제 버튼을 눌러주세요.**")
+
                 selected_rows = st.dataframe(
                     df_m,
                     use_container_width=True,
                     hide_index=True,
                     on_select="rerun",
-                    selection_mode="single-row"
+                    selection_mode="single-row",
+                    key="member_delete_dataframe"
                 )
 
                 clicked_index = selected_rows.get("selection", {}).get("rows", [])
@@ -203,19 +205,28 @@ with tab_member:
 
                     if st.button(f"❌ {selected_player['name']} 회원 영구 삭제", type="primary", use_container_width=True):
                         try:
+                            # 1. 데이터베이스 삭제 처리 시작
                             conn = get_db_connection()
                             cur = conn.cursor()
-                            # 진행 대기 중인 인원 명단(중간 매핑 테이블)에서만 해당 아이디를 안전하게 삭제
+
+                            # 출전 대기 명단 찌꺼기 제거
                             cur.execute("DELETE FROM tournament_players WHERE member_id = %s",
                                         (int(selected_player['id']),))
-                            # 회원 정보 삭제 실행 (과거 매치 텍스트 기록은 그대로 보존됨)
+                            # 회원 정보 삭제 실행 (과거 매치 결과는 텍스트 기반이라 유지됨)
                             cur.execute("DELETE FROM members WHERE id = %s", (int(selected_player['id']),))
+
                             conn.commit()
                             cur.close()
                             conn.close()
 
+                            # 2. 잔여 선택 세션 메모리 초기화로 즉각적인 리프레시 보장
+                            if "member_delete_dataframe" in st.session_state:
+                                del st.session_state["member_delete_dataframe"]
+
+                            # 3. 화면을 완전히 새로고침하여 갱신 데이터 출력
                             st.success(f"🗑️ {selected_player['name']} 회원이 안전하게 삭제되었습니다.")
                             st.rerun()
+
                         except Exception as e:
                             st.error(f"❌ 회원 삭제 중 오류 발생: {e}")
                 else:
