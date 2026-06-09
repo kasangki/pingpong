@@ -1,79 +1,88 @@
 import streamlit as st
 import pandas as pd
 
+
+def render_ranking_table(ranking_data):
+    """럭셔리 랭킹 테이블 렌더링 함수"""
+    html_table = "<style>"
+    html_table += ".ranking-container { width: 100%; margin: 20px 0; background: #ffffff; border-radius: 16px; box-shadow: 0 4px 20px rgba(0,0,0,0.06); border: 1px solid #E2E8F0; overflow: hidden; }"
+    html_table += ".ranking-table { width: 100%; border-collapse: collapse; text-align: center; font-family: 'Pretendard', sans-serif; }"
+    html_table += ".ranking-table thead { background: #F8FAFC; border-bottom: 2px solid #E2E8F0; }"
+    html_table += ".ranking-table th { padding: 16px; color: #64748B; font-weight: 600; font-size: 0.9rem; letter-spacing: 0.05em; }"
+    html_table += ".ranking-table td { padding: 16px; border-bottom: 1px solid #F1F5F9; color: #1E293B; }"
+    html_table += ".ranking-table tbody tr:hover { background-color: #F1F5F9; transition: 0.2s; }"
+    html_table += ".rank-num { font-weight: 800; font-size: 1.1rem; }"
+    html_table += ".gold { color: #D97706; background: #FEF3C7; padding: 4px 12px; border-radius: 20px; }"
+    html_table += ".silver { color: #475569; background: #E2E8F0; padding: 4px 12px; border-radius: 20px; }"
+    html_table += ".bronze { color: #9A3412; background: #FFEDD5; padding: 4px 12px; border-radius: 20px; }"
+    html_table += ".name-cell { font-weight: 700; font-size: 1.05rem; }"
+    html_table += ".wins-cell { color: #4F46E5; font-weight: 800; font-size: 1.1rem; }"
+    html_table += "</style>"
+
+    html_table += "<div class='ranking-container'><table class='ranking-table'>"
+    html_table += "<thead><tr><th>순위</th><th>선수 이름</th><th>부수</th><th>총 승리 횟수</th></tr></thead><tbody>"
+
+    for row in ranking_data:
+        rank = int(row['rank'])
+        if rank == 1:
+            rank_cls, rank_txt = "gold", f"🥇 {rank}위"
+        elif rank == 2:
+            rank_cls, rank_txt = "silver", f"🥈 {rank}위"
+        elif rank == 3:
+            rank_cls, rank_txt = "bronze", f"🥉 {rank}위"
+        else:
+            rank_cls, rank_txt = "rank-num", f"{rank}위"
+
+        html_table += f"<tr><td><span class='{rank_cls}'>{rank_txt}</span></td><td class='name-cell'>{row['name']}</td><td style='color:#64748B;'>{row['grade']}부</td><td class='wins-cell'>{row['total_wins']}승</td></tr>"
+
+    html_table += "</tbody></table></div>"
+    return html_table
+
+
 def run_tab_ranking(get_db_connection):
-    st.header("📊 연도별 동호회 통합 등수 / 랭킹 산정판")
-    col_y, col_g = st.columns([1, 1])
-    with col_y:
-        ranking_year = st.selectbox("📅 조회 연도 선택", ["2026", "2025", "2024"])
-    with col_g:
-        grade_filter = st.selectbox("🏓 대상 부수 범위 필터", ["전체 부수 보기", "상위권 (1~5부)", "하위권 (6부 이하)"])
+    st.header("📊 연도별 통합 랭킹")
+
+    # 1. 연도 선택 사이드바
+    current_year = pd.Timestamp.now().year
+    year = st.selectbox("조회할 연도를 선택하세요", list(range(current_year, current_year - 5, -1)))
 
     try:
         conn = get_db_connection()
-        df_year_tours = pd.read_sql(f"SELECT id, title FROM tournaments WHERE EXTRACT(YEAR FROM created_at) = {ranking_year}", conn)
-
-        if df_year_tours.empty:
-            st.info(f"📅 {ranking_year}년도에는 아직 대회 데이터가 없습니다.")
-            conn.close()
-            return
-
-        tour_ids = tuple(df_year_tours['id'].tolist())
-        tour_ids_str = f"({tour_ids[0]})" if len(tour_ids) == 1 else str(tour_ids)
-        df_all_res = pd.read_sql(f"SELECT tournament_id, group_idx, player1_name, player2_name, score_text FROM match_results WHERE tournament_id IN {tour_ids_str}", conn)
-        df_mem_info = pd.read_sql("SELECT name, grade FROM members", conn)
+        # 대회 결과에서 연도별 승리 기록 합산 쿼리
+        query = f"""
+            SELECT m.name, m.grade, COUNT(*) as total_wins
+            FROM match_results mr
+            JOIN tournaments t ON mr.tournament_id = t.id
+            JOIN members m ON (
+                (mr.player1_id = m.id AND mr.score_text LIKE '3:%') OR 
+                (mr.player2_id = m.id AND mr.score_text LIKE '%:3')
+            )
+            WHERE EXTRACT(YEAR FROM t.created_at) = {year}
+            GROUP BY m.id, m.name, m.grade
+            ORDER BY total_wins DESC
+        """
+        df_ranking = pd.read_sql(query, conn)
         conn.close()
 
-        mem_grade_map = dict(zip(df_mem_info['name'], df_mem_info['grade']))
-        player_points = {}
-
-        for t_id in df_year_tours['id'].tolist():
-            df_t_res = df_all_res[df_all_res['tournament_id'] == t_id]
-            if df_t_res.empty: continue
-            t_codes = df_t_res[df_t_res['group_idx'] >= 901]['group_idx'].unique()
-
-            if len(t_codes) > 0:
-                max_round = max(t_codes)
-                for _, row in df_t_res.iterrows():
-                    g_idx = row['group_idx']
-                    p1, p2 = row['player1_name'], row['player2_name']
-                    if ":" in row['score_text']:
-                        s1, s2 = map(int, row['score_text'].split(":"))
-                        winner = p1 if s1 > s2 else p2
-                        loser = p2 if s1 > s2 else p1
-
-                        if winner not in player_points: player_points[winner] = 0
-                        if loser not in player_points: player_points[loser] = 0
-
-                        if g_idx == max_round:
-                            player_points[winner] += 10
-                            player_points[loser] += 7
-                        elif g_idx == max_round - 1:
-                            player_points[loser] += 5
-                        elif g_idx == max_round - 2:
-                            player_points[loser] += 3
-                        elif g_idx >= 901:
-                            player_points[loser] += 1
-            else:
-                for _, row in df_t_res.iterrows():
-                    if ":" in row['score_text']:
-                        s1, s2 = map(int, row['score_text'].split(":"))
-                        winner = row['player1_name'] if s1 > s2 else row['player2_name']
-                        player_points[winner] = player_points.get(winner, 0) + 1
-
-        rank_list = []
-        for name, pts in player_points.items():
-            p_grade = mem_grade_map.get(name, 99)
-            if grade_filter == "상위권 (1~5부)" and p_grade > 5: continue
-            if grade_filter == "하위권 (6부 이하)" and p_grade < 6: continue
-            rank_list.append({"선수명": name, "부수": f"{p_grade}부" if p_grade != 99 else "미지정", "📊 누적 랭킹 포인트": pts})
-
-        df_final_rank = pd.DataFrame(rank_list)
-        if df_final_rank.empty:
-            st.warning("조건에 일치하는 랭킹 데이터가 없습니다.")
+        if df_ranking.empty:
+            st.info(f"{year}년도에는 기록된 경기 데이터가 없습니다.")
         else:
-            df_final_rank = df_final_rank.sort_values(by="📊 누적 랭킹 포인트", ascending=False).reset_index(drop=True)
-            df_final_rank.insert(0, "🥇 최종 순위", df_final_rank["📊 누적 랭킹 포인트"].rank(ascending=False, method="min").astype(int))
-            st.dataframe(df_final_rank, use_container_width=True, hide_index=True)
+            # 랭킹 데이터 가공
+            ranking_list = []
+            for i, row in df_ranking.iterrows():
+                ranking_list.append({
+                    "rank": i + 1,
+                    "name": row['name'],
+                    "grade": row['grade'],
+                    "total_wins": row['total_wins']
+                })
+
+            # 고급 디자인 테이블 출력
+            st.markdown(render_ranking_table(ranking_list), unsafe_allow_html=True)
+
+            # 통계 그래프 (선택사항)
+            st.subheader("📈 승리 횟수 분포")
+            st.bar_chart(df_ranking.set_index('name')['total_wins'])
+
     except Exception as e:
-        st.error(f"랭킹 산정 오류: {e}")
+        st.error(f"랭킹 데이터를 불러오는 중 오류가 발생했습니다: {e}")
