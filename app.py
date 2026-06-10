@@ -191,7 +191,7 @@ if not st.session_state.logged_in:
             st.info("현재 시스템에 승인 완료된 동호회가 없습니다. 수퍼 관리자 로그인을 통해 승인을 진행해 주세요.")
 
         club_list = df_clubs.to_dict('records')
-        selected_club = st.selectbox("🏢 이용하실 탁구 동호회를 선택해 주세요",
+        selected_club = st.selectbox("🏢 탁구 동호회 선택",
                                      club_list if club_list else [{"id": 0, "club_name": "등록 대기 중"}],
                                      format_func=lambda x: x['club_name'])
 
