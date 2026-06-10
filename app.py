@@ -277,7 +277,7 @@ if not st.session_state.logged_in:
                     reg_grade = st.selectbox("본인 부수", list(range(1, 12)), index=7, format_func=lambda x: f"{x}부")
                     reg_phone = st.text_input("연락처 (숫자만)")
 
-                    if st.form_submit_button("📝 해당 동호회로 회원 가입", use_container_width=True):
+                    if st.form_submit_button("📝 회원 가입", use_container_width=True):
                         if reg_name and reg_phone:
                             try:
                                 conn = get_db_connection()
