@@ -105,13 +105,18 @@ def delete_app_session():
 # ==========================================
 # 🎯 로그인 상태에 따른 동적 타이틀 분기 출력
 # ==========================================
+# ==========================================
+# 🎯 [핵심 패치] 로그인 상태에 따른 동적 타이틀 분기 출력 (글자 크기 확대)
+# ==========================================
 if st.session_state.logged_in and st.session_state.user_role == "super_admin":
-    st.title("🛡️ 탁구 플랫폼 총괄 최고 슈퍼 관리자 룸")
+    st.markdown("<h1 style='font-size: 42px !important; font-weight: 900; color: #F8FAFC; margin-bottom: 20px;'>🛡️ 탁구 플랫폼 총괄 최고 슈퍼 관리자 룸</h1>", unsafe_allow_html=True)
 elif st.session_state.logged_in and st.session_state.club_name:
-    st.title(f"🏓 {st.session_state.club_name}")
+    # 💡 로그인 성공 시 동호회 구장 명칭을 거대하고 멋지게 출력합니다.
+    st.markdown(f"<h1 style='font-size: 45px !important; font-weight: 900; color: #FFFFFF; text-shadow: 0 4px 12px rgba(79, 70, 229, 0.3); margin-bottom: 20px;'>🏓 {st.session_state.club_name}</h1>", unsafe_allow_html=True)
 else:
+    # 💡 로그인 전 기본 타이틀 크기 확대
     app_title = st.secrets["auth"].get("app_title", "🏓 멀티 탁구동호회 통합 관리 플랫폼")
-    st.title(app_title)
+    st.markdown(f"<h1 style='font-size: 38px !important; font-weight: 800; color: #F1F5F9; margin-bottom: 25px;'>{app_title}</h1>", unsafe_allow_html=True)
 
 # ==========================================
 # 🖥️ 로그인 / 동호회 생성 / 회원 가입 통합 인터페이스
