@@ -118,8 +118,8 @@ else:
 # ==========================================
 if not st.session_state.logged_in:
 
-    #auth_mode = st.radio("⚙️ 원하시는 작업을 선택하세요", ["기존 동호회 로그인 및 가입", "🏢 우리 탁구 동호회 신규 개설하기"], horizontal=True)
-    auth_mode = st.radio("⚙️ 원하시는 작업을 선택하세요", ["동호회 로그인 및 가입"], horizontal=True)
+    auth_mode = st.radio("⚙️ 원하시는 작업을 선택하세요", ["기존 동호회 로그인 및 가입", "🏢 우리 탁구 동호회 신규 개설하기"], horizontal=True)
+    #auth_mode = st.radio("⚙️ 원하시는 작업을 선택하세요", ["동호회 로그인 및 가입"], horizontal=True)
     st.markdown("---")
 
     # -------------------------------------------------------------
