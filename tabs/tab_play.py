@@ -3,36 +3,42 @@ import pandas as pd
 import math
 
 
-# 스타일 정의
+# 스타일 정의 (글자 크기 전면 확대 반영)
 def get_style():
     return """
     <style>
+    /* 전체 Streamlit 기본 폰트 크기 보정 */
+    html, body, [data-testid="stMarkdownContainer"] p { font-size: 17px !important; line-height: 1.6; }
+
     /* 예선 리그전 입력창 글자 크기 및 레이아웃 확대 */
-    .match-row-num { margin-top: 8px; color: #64748B; font-weight: bold; font-size: 15px; }
-    .player-box-p1 { background-color: #EEF2FF; padding: 8px; text-align: center; border-radius: 6px; font-size: 17px !important; font-weight: 700; color: #312E81; border: 1px solid #C7D2FE; }
-    .player-box-p2 { background-color: #F0FDF4; padding: 8px; text-align: center; border-radius: 6px; font-size: 17px !important; font-weight: 700; color: #065F46; border: 1px solid #A7F3D0; }
-    .vs-divider { text-align: center; padding-top: 6px; font-weight: 800; font-size: 18px; color: #94A3B8; }
+    .match-row-num { margin-top: 10px; color: #94A3B8; font-weight: bold; font-size: 17px; }
+    .player-box-p1 { background-color: #1E1B4B; padding: 10px; text-align: center; border-radius: 8px; font-size: 20px !important; font-weight: 800; color: #C7D2FE; border: 1px solid #312E81; }
+    .player-box-p2 { background-color: #064E3B; padding: 10px; text-align: center; border-radius: 8px; font-size: 20px !important; font-weight: 800; color: #A7F3D0; border: 1px solid #065F46; }
+    .vs-divider { text-align: center; padding-top: 8px; font-weight: 900; font-size: 22px; color: #64748B; }
 
     /* 등수 변경 및 순위표 타이포그래피 */
-    .rank-title { font-size: 18px !important; font-weight: bold; margin-bottom: 10px; }
-    .text-main-bold { font-size: 16px !important; font-weight: 700; color: #1E293B; }
+    .rank-title { font-size: 22px !important; font-weight: bold; margin-bottom: 12px; color: #F8FAFC; }
+    .text-main-bold { font-size: 18px !important; font-weight: 700; color: #F1F5F9; }
 
-    /* 5위 이하 최종 종합 순위표 럭셔리 대시보드 스타일 */
-    .luxury-table-container { width: 100%; margin: 25px 0; background: #ffffff; border-radius: 14px; box-shadow: 0 4px 20px rgba(0,0,0,0.06); border: 1px solid #E2E8F0; overflow: hidden; }
+    /* 5위 이하 최종 종합 순위표 럭셔리 대시보드 스타일 (글자 확대) */
+    .luxury-table-container { width: 100%; margin: 25px 0; background: #1E293B; border-radius: 14px; box-shadow: 0 4px 20px rgba(0,0,0,0.3); border: 1px solid #334155; overflow: hidden; }
     .luxury-table { width: 100%; border-collapse: collapse; text-align: center; font-family: 'Pretendard', sans-serif; }
-    .luxury-table thead { background: linear-gradient(135deg, #4F46E5 0%, #3730A3 100%); border-bottom: 2px solid #E2E8F0; }
-    .luxury-table th { padding: 16px; color: #ffffff; font-weight: 600; font-size: 15px; letter-spacing: 0.05em; }
-    .luxury-table td { padding: 15px; border-bottom: 1px solid #F1F5F9; color: #1E293B; font-size: 15px; }
-    .luxury-table tbody tr:hover { background-color: #F8FAFC; transition: 0.2s; }
-    .rank-badge-item { background: linear-gradient(135deg, #EF4444 0%, #DC2626 100%); color: white; padding: 4px 12px; border-radius: 20px; font-weight: 700; font-size: 13px; box-shadow: 0 2px 4px rgba(239, 68, 68, 0.2); }
-    .name-cell-item { font-weight: 700; font-size: 16px; color: #0F172A; }
-    .wins-cell-item { color: #4F46E5; font-weight: 800; font-size: 16px; }
-    .text-plus-item { color: #2563EB; font-weight: 700; }
-    .text-minus-item { color: #DC2626; font-weight: 700; }
-    .text-gray-item { color: #64748B; font-weight: 500; }
+    .luxury-table thead { background: linear-gradient(135deg, #4F46E5 0%, #3730A3 100%); border-bottom: 2px solid #334155; }
+    .luxury-table th { padding: 18px; color: #ffffff; font-weight: 700; font-size: 18px; letter-spacing: 0.05em; }
+    .luxury-table td { padding: 18px; border-bottom: 1px solid #334155; color: #F1F5F9; font-size: 17px; }
+    .luxury-table tbody tr:hover { background-color: #334155; transition: 0.2s; }
 
-    /* 스핀박스 중앙 정렬 및 가시성 */
-    .stNumberInput input { font-size: 16px !important; font-weight: bold !important; text-align: center !important; }
+    .rank-badge-item { background: linear-gradient(135deg, #EF4444 0%, #DC2626 100%); color: white; padding: 6px 16px; border-radius: 20px; font-weight: 800; font-size: 15px; box-shadow: 0 2px 4px rgba(239, 68, 68, 0.4); }
+    .name-cell-item { font-weight: 800; font-size: 19px; color: #FFFFFF; }
+    .wins-cell-item { color: #818CF8; font-weight: 900; font-size: 19px; }
+    .text-plus-item { color: #60A5FA; font-weight: 700; font-size: 17px; }
+    .text-minus-item { color: #F87171; font-weight: 700; font-size: 17px; }
+    .text-gray-item { color: #94A3B8; font-weight: 500; font-size: 17px; }
+
+    /* 스핀박스 내부 글자 크기 강제 확대 및 중앙 정렬 */
+    .stNumberInput input { font-size: 20px !important; font-weight: 900 !important; text-align: center !important; color: #FFFFFF !important; }
+    /* 탭 메뉴 글자 크기 확대 */
+    .stTabs button p { font-size: 18px !important; font-weight: bold !important; }
     </style>
     """
 
@@ -57,7 +63,6 @@ def run_tab_play(get_db_connection):
     st.markdown(get_style(), unsafe_allow_html=True)
     st.header("3. 실시간 경기 진행 및 결과 기록")
 
-    # 💡 전역 소속 동호회 ID 확보
     club_id = st.session_state.club_id
 
     try:
@@ -94,9 +99,6 @@ def run_tab_play(get_db_connection):
     for _, row in df_saved_matches.iterrows():
         db_scores[(int(row['group_idx']), int(row['player1_id']), int(row['player2_id']))] = row['score_text']
 
-    # -------------------------------------------------------------
-    # 🔒 경기 진행 여부 및 대회 종료 여부 검증
-    # -------------------------------------------------------------
     is_game_started = len(db_scores) > 0
     is_tournament_finished = False
 
@@ -110,18 +112,13 @@ def run_tab_play(get_db_connection):
                     is_tournament_finished = True
 
     is_ui_disabled = is_game_started or is_tournament_finished
-
-    # ⭐ [권한 락 스위치] 관리자(admin)가 아니면 무조건 점수/순위 수정 원천 잠금
     is_score_locked = False if st.session_state.user_role == "admin" else True
 
     if is_tournament_finished:
-        st.success("🏆 본 대회가 종료되어 결과가 안전하게 보존되었습니다. (경기 방식 및 조 설정 변경 기능 잠금)")
+        st.success("🏆 본 대회가 종료되어 결과가 안전하게 보존되었습니다.")
     elif is_game_started:
         st.info("📊 현재 경기가 진행 중이므로 경기 방식 및 조 갯수 설정이 고정되었습니다.")
 
-    # -------------------------------------------------------------
-    # 🛠️ 경기 방식 및 조 개수 입력 UI
-    # -------------------------------------------------------------
     col_method, col_group_num = st.columns([2, 1])
     with col_method:
         game_method = st.radio(
@@ -167,9 +164,6 @@ def run_tab_play(get_db_connection):
             "승": 0, "득실차": 0, "진출단계점수": 0, "탈락라운드텍스트": "예선 탈락"
         }
 
-    # ==========================================
-    # 🪵 1. 예선 리그전(라운드로빈) 파트
-    # ==========================================
     if game_method in ["라운드로빈(풀리그)", "혼합 방식 (리그 후 토너먼트)"]:
         groups = [[] for _ in range(num_groups)]
         for idx, p in enumerate(player_list):
@@ -206,7 +200,6 @@ def run_tab_play(get_db_connection):
                     st.markdown(f"<div class='player-box-p2'>{p2['name']}</div>", unsafe_allow_html=True)
 
                 with c_btn:
-                    # 💡 스코어 기록 버튼도 일반 회원일 경우 비활성화 처리
                     if st.button("💾 저장", key=f"b_{group_idx}_{idx}", use_container_width=True,
                                  disabled=is_score_locked):
                         if sc1 == 3 and sc2 == 3:
@@ -267,7 +260,7 @@ def run_tab_play(get_db_connection):
                 st.session_state[f"manual_rank_{active_tour['id']}_{group_idx}"] = {}
             m_ranks = st.session_state[f"manual_rank_{active_tour['id']}_{group_idx}"]
 
-            c_h1, c_h2, c_h3, c_h4, c_h5 = st.columns([1, 2.5, 1.2, 1.2, 3.1])
+            c_h1, c_h2, c_h3, c_h4, c_h5 = st.columns([1.2, 2.3, 1.2, 1.2, 3.1])
             c_h1.markdown("**등수**")
             c_h2.markdown("**선수 정보**")
             c_h3.markdown("**승률**")
@@ -279,7 +272,7 @@ def run_tab_play(get_db_connection):
                 p = stat["player_obj"]
                 default_rank = m_ranks.get(p['id'], idx + 1)
 
-                c_b1, c_b2, c_b3, c_b4, c_b5 = st.columns([1, 2.5, 1.2, 1.2, 3.1])
+                c_b1, c_b2, c_b3, c_b4, c_b5 = st.columns([1.2, 2.3, 1.2, 1.2, 3.1])
                 medal = f"🥇 {default_rank}위" if default_rank == 1 else f"🥈 {default_rank}위" if default_rank == 2 else f"🥉 {default_rank}위" if default_rank == 3 else f"🏅 {default_rank}위"
                 c_b1.markdown(f"**{medal}**")
                 c_b2.markdown(f"<span class='text-main-bold'>{stat['name']}</span> ({stat['grade']}부)",
@@ -288,7 +281,6 @@ def run_tab_play(get_db_connection):
                 c_b4.markdown(f"**{stat['득실차']:+d}**")
 
                 with c_b5:
-                    # ⭐ [보안 핵심 패치] 일반 회원(`is_score_locked=True`)이 들어오면 등수 조정 폼 자체를 락(disabled) 겁니다.
                     new_rank = st.number_input(
                         f"등수 변경 {stat['name']}", min_value=1, max_value=len(group_players),
                         value=int(default_rank), step=1, key=f"mr_{group_idx}_{p['id']}",
@@ -426,11 +418,11 @@ def run_tab_play(get_db_connection):
                 c_m, c_p1, c_s1, c_vs, c_s2, c_p2, c_save = st.columns([1.0, 2.3, 1.1, 0.4, 1.1, 2.3, 1.2])
                 with c_m:
                     st.markdown(
-                        f"<div style='margin-top:10px; font-weight:bold; color:#1E3A8A; font-size:15px;'>매치 {idx + 1}</div>",
+                        f"<div style='margin-top:12px; font-weight:bold; color:#60A5FA; font-size:16px;'>매치 {idx + 1}</div>",
                         unsafe_allow_html=True)
                 with c_p1:
                     st.markdown(
-                        f"<div style='background-color:#ECFDF5; padding:8px; text-align:center; border-radius:6px; font-size:16px; border:1px solid #A7F3D0;'><b>{p1['name']}</b> <span style='font-size:12px; color:gray;'>({p1['grade']}부)</span></div>",
+                        f"<div style='background-color:#064E3B; padding:10px; text-align:center; border-radius:8px; font-size:18px; color:#A7F3D0; border:1px solid #065F46;'><b>{p1['name']}</b> <span style='font-size:13px; color:#94A3B8;'>({p1['grade']}부)</span></div>",
                         unsafe_allow_html=True)
                 with c_s1:
                     sc1 = st.number_input("🔹", min_value=0, max_value=3, value=v1, step=1,
@@ -438,7 +430,7 @@ def run_tab_play(get_db_connection):
                                           disabled=is_score_locked)
                 with c_vs:
                     st.markdown(
-                        "<div style='text-align:center; padding-top:6px; font-weight:bold; font-size:16px;'>:</div>",
+                        "<div style='text-align:center; padding-top:8px; font-weight:bold; font-size:18px;'>:</div>",
                         unsafe_allow_html=True)
                 with c_s2:
                     sc2 = st.number_input("🔸", min_value=0, max_value=3, value=v2, step=1,
@@ -446,11 +438,10 @@ def run_tab_play(get_db_connection):
                                           disabled=is_score_locked)
                 with c_p2:
                     st.markdown(
-                        f"<div style='background-color:#FFFBEB; padding:8px; text-align:center; border-radius:6px; font-size:16px; border:1px solid #FDE68A;'><b>{p2['name']}</b> <span style='font-size:12px; color:gray;'>({p2['grade']}부)</span></div>",
+                        f"<div style='background-color:#78350F; padding:10px; text-align:center; border-radius:8px; font-size:18px; color:#FDE68A; border:1px solid #92400E;'><b>{p2['name']}</b> <span style='font-size:13px; color:#94A3B8;'>({p2['grade']}부)</span></div>",
                         unsafe_allow_html=True)
 
                 with c_save:
-                    # 💡 본선 토너먼트 스코어 저장 버튼도 권한 잠금 연동
                     if st.button("💾 기록", key=f"tsave_{round_level}_{idx}", use_container_width=True,
                                  type="secondary" if is_recorded else "primary", disabled=is_score_locked):
                         if sc1 == 3 and sc2 == 3:
@@ -472,7 +463,6 @@ def run_tab_play(get_db_connection):
 
             if p_count == 2 and round_all_clear and any_valid_match:
                 if len(next_round_players) > 0:
-                    # 대회가 진짜 마무리되었을 때의 세레머니 및 결과 보드 표출
                     if not is_score_locked:
                         st.balloons()
                     st.success(f"🏆 축하합니다!! 본 대회의 최종 우승자는 **[{next_round_players[0]['name']}]** 선수입니다!!")
@@ -483,16 +473,16 @@ def run_tab_play(get_db_connection):
                     c_tr1, c_tr2, c_tr3 = st.columns(3)
                     with c_tr1:
                         st.markdown(
-                            f"<div style='background-color:#FEF3C7; padding:15px; border-radius:8px; text-align:center; border:2px solid #F59E0B;'><h5>🥇 우승 (1위)</h5><h3 style='color:#B45309;'>{final_ranks_dict['우승 (1위)']}</h3></div>",
+                            f"<div style='background-color:#78350F; padding:18px; border-radius:10px; text-align:center; border:2px solid #F59E0B;'><h4>🥇 우승 (1위)</h4><h2 style='color:#FBBF24;'>{final_ranks_dict['우승 (1위)']}</h2></div>",
                             unsafe_allow_html=True)
                     with c_tr2:
                         st.markdown(
-                            f"<div style='background-color:#E5E7EB; padding:15px; border-radius:8px; text-align:center; border:2px solid #9CA3AF;'><h5>🥈 준우승 (2위)</h5><h3 style='color:#4B5563;'>{final_ranks_dict['준우승 (2위)']}</h3></div>",
+                            f"<div style='background-color:#334155; padding:18px; border-radius:10px; text-align:center; border:2px solid #9CA3AF;'><h4>🥈 준우승 (2위)</h4><h2 style='color:#E2E8F0;'>{final_ranks_dict['준우승 (2위)']}</h2></div>",
                             unsafe_allow_html=True)
                     with c_tr3:
                         th3_players = ", ".join(final_ranks_dict["공동 3위"]) if final_ranks_dict["공동 3위"] else "없음"
                         st.markdown(
-                            f"<div style='background-color:#FFEDD5; padding:15px; border-radius:8px; text-align:center; border:2px solid #F97316;'><h5>🥉 공동 3위</h5><h4 style='color:#C2410C; margin-top:8px;'>{th3_players}</h4></div>",
+                            f"<div style='background-color:#451A03; padding:18px; border-radius:10px; text-align:center; border:2px solid #F97316;'><h4>🥉 공동 3위</h4><h3 style='color:#FB923C; margin-top:8px;'>{th3_players}</h3></div>",
                             unsafe_allow_html=True)
 
                     if all_league_stats:
@@ -530,7 +520,7 @@ def run_tab_play(get_db_connection):
                                 html_table += f"<td><span class='rank-badge-item'>{row['rank']}</span></td>"
                                 html_table += f"<td class='name-cell-item'>{row['name']}</td>"
                                 html_table += f"<td><span class='text-gray-item'>{row['grade']}</span></td>"
-                                html_table += f"<td style='color: #4F46E5; font-weight: 600;'>{row['t_result']}</td>"
+                                html_table += f"<td style='color: #818CF8; font-weight: 600;'>{row['t_result']}</td>"
                                 html_table += f"<td class='wins-cell-item'>{row['l_wins']}</td>"
                                 html_table += f"<td class='{diff_class}'>{row['l_diff']}</td>"
                                 html_table += "</tr>"
