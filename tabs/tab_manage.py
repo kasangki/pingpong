@@ -6,6 +6,9 @@ import datetime
 def run_tab_manage(get_db_connection):
     st.header("2. 대회 관리 및 선수 선발")
 
+    # 💡 전역 소속 동호회 ID 확보
+    club_id = st.session_state.club_id
+
     if st.session_state.user_role != "admin":
         st.warning("🔒 이 탭은 **관리자 전용** 공간입니다. 일반 회원은 대회를 관리할 수 없습니다.")
     else:
@@ -26,14 +29,15 @@ def run_tab_manage(get_db_connection):
                         try:
                             conn = get_db_connection()
                             cur = conn.cursor()
+                            # 💡 대회를 생성할 때 현재 로그인한 동호회 고유 ID(club_id)를 정확히 바인딩합니다.
                             cur.execute(
-                                "INSERT INTO tournaments (title, tournament_date) VALUES (%s, %s)",
-                                (t_title.strip(), t_date)
+                                "INSERT INTO tournaments (club_id, title, status) VALUES (%s, %s, 'setup')",
+                                (club_id, t_title.strip())
                             )
                             conn.commit()
                             cur.close()
                             conn.close()
-                            st.success(f"🎉 대회 [{t_title}] ({t_date})가 개설되었습니다.")
+                            st.success(f"🎉 대회 [{t_title}]가 성공적으로 개설되었습니다.")
                             st.rerun()
                         except Exception as e:
                             st.error(f"❌ 대회 생성 실패: {e}")
@@ -44,28 +48,32 @@ def run_tab_manage(get_db_connection):
             st.subheader("개설된 대회 선택")
             try:
                 conn = get_db_connection()
-                df_t = pd.read_sql(
-                    "SELECT id, title, tournament_date FROM tournaments ORDER BY tournament_date DESC, id DESC", conn)
+                # 💡 [오타 수정 완료] SQL 내부의 잘못된 파이썬 주석 구문을 완전히 걷어냈습니다.
+                query = "SELECT id, title, created_at FROM tournaments WHERE club_id = %s AND deleted_at IS NULL ORDER BY id DESC"
+                df_t = pd.read_sql(query, conn, params=(club_id,))
                 conn.close()
 
-                df_t_view = df_t[["tournament_date", "title"]].copy()
-                df_t_view.columns = ["개최 날짜", "대회 명칭"]
+                if not df_t.empty:
+                    df_t_view = df_t[["created_at", "title"]].copy()
+                    df_t_view.columns = ["개최 등록일시", "대회 명칭"]
 
-                st.markdown("👇 **선수를 선발할 대회를 아래 명단에서 클릭해 주세요.**")
-                selected_rows = st.dataframe(
-                    df_t_view,
-                    use_container_width=True,
-                    hide_index=True,
-                    on_select="rerun",
-                    selection_mode="single-row",
-                    key="admin_tour_dataframe"
-                )
-                clicked_index = selected_rows.get("selection", {}).get("rows", [])
-            except:
-                df_t, clicked_index = pd.DataFrame(columns=["id", "title", "tournament_date"]), []
+                    st.markdown("👇 **선수를 선발할 대회를 아래 명단에서 클릭해 주세요.**")
+                    selected_rows = st.dataframe(
+                        df_t_view,
+                        use_container_width=True,
+                        hide_index=True,
+                        on_select="rerun",
+                        selection_mode="single-row",
+                        key="admin_tour_dataframe"
+                    )
+                    clicked_index = selected_rows.get("selection", {}).get("rows", [])
+                else:
+                    clicked_index = []
+            except Exception as e:
+                df_t, clicked_index = pd.DataFrame(columns=["id", "title", "created_at"]), []
 
         # -------------------------------------------------------------
-        # 🎯 우측: 대회별 출전 선수 선발 (개편된 멀티 체크박스 영역)
+        # 🎯 우측: 대회별 출전 선수 선발
         # -------------------------------------------------------------
         with col_t_p_select:
             st.subheader("대회별 출전 선수 다중 선발")
@@ -77,17 +85,19 @@ def run_tab_manage(get_db_connection):
                     "대상 대회를 선택하세요",
                     tour_options,
                     index=clicked_index[0] if clicked_index else 0,
-                    format_func=lambda x: f"[{x['tournament_date']}] {x['title']}"
+                    format_func=lambda x: f"{x['title']}"
                 )
 
                 try:
                     conn = get_db_connection()
-                    # 1. 활동 중인 회원 전체 목록 로드
+                    # 1. 우리 동호회 소속이면서 정상 활동 중인('active') 회원 전체 목록 로드
                     df_all_m = pd.read_sql(
-                        "SELECT id, name, grade FROM members WHERE status = 'active' ORDER BY name ASC", conn)
-                    # 2. 이미 이 대회에 선발되어 있는 선수 ID 목록 로드
+                        "SELECT id, name, grade FROM members WHERE club_id = %s AND status = 'active' ORDER BY name ASC",
+                        conn, params=(club_id,))
+
+                    # 2. 이미 이 대회에 선발되어 있는 우리 동호회 선수 ID 목록 로드
                     df_current_p = pd.read_sql(
-                        f"SELECT m.id, m.name, m.grade FROM tournament_players tp JOIN members m ON tp.member_id = m.id WHERE tp.tournament_id = {selected_t['id']} ORDER BY m.name ASC",
+                        f"SELECT m.id, m.name, m.grade FROM tournament_players tp JOIN members m ON tp.member_id = m.id WHERE tp.tournament_id = {selected_t['id']} AND m.club_id = {club_id} ORDER BY m.name ASC",
                         conn
                     )
                     conn.close()
@@ -100,22 +110,18 @@ def run_tab_manage(get_db_connection):
                 if not df_all_m.empty:
                     st.markdown("💡 **이번 대회에 출전할 회원들을 체크박스로 모두 선택한 후 하단의 [일괄 등록] 버튼을 눌러주세요.**")
 
-                    # 📋 체크박스 리스트 가독성을 위한 스크롤 컨테이너 박스 구현
                     selected_member_ids = []
 
-                    # 부수별 정렬 혹은 이름순 정렬 상태로 화면에 렌더링
                     with st.container(height=300, border=True):
                         for _, row in df_all_m.iterrows():
                             m_id = int(row['id'])
                             m_name = row['name']
                             m_grade = row['grade']
 
-                            # 이미 등록된 선수라면 체크박스를 미리 가동하고 비활성화(선택 완료 표시)
                             if m_id in already_selected_ids:
                                 st.checkbox(f"✅ {m_name} ({m_grade}부) - [선발 완료]", value=True, disabled=True,
                                             key=f"chk_done_{m_id}")
                             else:
-                                # 아직 등록되지 않은 회원만 체크 가능하도록 노출
                                 is_checked = st.checkbox(f"⬜ {m_name} ({m_grade}부)", value=False, key=f"chk_new_{m_id}")
                                 if is_checked:
                                     selected_member_ids.append(m_id)
@@ -129,7 +135,6 @@ def run_tab_manage(get_db_connection):
                             try:
                                 conn = get_db_connection()
                                 cur = conn.cursor()
-                                # 다중 행 대량 Insert 구문 실행 (성능 최적화)
                                 insert_query = "INSERT INTO tournament_players (tournament_id, member_id) VALUES (%s, %s)"
                                 for target_id in selected_member_ids:
                                     cur.execute(insert_query, (selected_t['id'], target_id))

@@ -42,30 +42,41 @@ def render_ranking_table(ranking_data):
 def run_tab_ranking(get_db_connection):
     st.header("📊 연도별 통합 랭킹")
 
-    # 1. 연도 선택 사이드바
+    # 💡 전역 세션에서 현재 로그인한 동호회 고유 번호(club_id) 확보
+    club_id = st.session_state.club_id
+
+    # 1. 연도 선택 셀렉트박스
     current_year = pd.Timestamp.now().year
     year = st.selectbox("조회할 연도를 선택하세요", list(range(current_year, current_year - 5, -1)))
 
     try:
         conn = get_db_connection()
-        # 대회 결과에서 연도별 승리 기록 합산 쿼리
-        query = f"""
+
+        # 💡 [문법 오류 수정]
+        # LIKE '3:%%' 와 LIKE '%%:3' 처럼 퍼센트를 두 번 써서 이스케이프 처리를 했습니다.
+        # 이제 Pandas가 파라미터 개수(3개)와 %s 개수를 정확히 일치시켜 오작동하지 않습니다.
+        query = """
             SELECT m.name, m.grade, COUNT(*) as total_wins
             FROM match_results mr
             JOIN tournaments t ON mr.tournament_id = t.id
             JOIN members m ON (
-                (mr.player1_id = m.id AND mr.score_text LIKE '3:%') OR 
-                (mr.player2_id = m.id AND mr.score_text LIKE '%:3')
+                (mr.player1_id = m.id AND mr.score_text LIKE '3:%%') OR 
+                (mr.player2_id = m.id AND mr.score_text LIKE '%%:3')
             )
-            WHERE EXTRACT(YEAR FROM t.created_at) = {year}
+            WHERE t.club_id = %s 
+              AND m.club_id = %s
+              AND m.status = 'active'
+              AND EXTRACT(YEAR FROM t.created_at) = %s
             GROUP BY m.id, m.name, m.grade
             ORDER BY total_wins DESC
         """
-        df_ranking = pd.read_sql(query, conn)
+
+        # 파라미터 바인딩 (정확히 3개의 변수가 매핑됩니다)
+        df_ranking = pd.read_sql(query, conn, params=(club_id, club_id, year))
         conn.close()
 
         if df_ranking.empty:
-            st.info(f"{year}년도에는 기록된 경기 데이터가 없습니다.")
+            st.info(f"ℹ️ {year}년도에는 기록된 경기 데이터가 없습니다.")
         else:
             # 랭킹 데이터 가공
             ranking_list = []
@@ -80,9 +91,9 @@ def run_tab_ranking(get_db_connection):
             # 고급 디자인 테이블 출력
             st.markdown(render_ranking_table(ranking_list), unsafe_allow_html=True)
 
-            # 통계 그래프 (선택사항)
+            # 통계 그래프
             st.subheader("📈 승리 횟수 분포")
             st.bar_chart(df_ranking.set_index('name')['total_wins'])
 
     except Exception as e:
-        st.error(f"랭킹 데이터를 불러오는 중 오류가 발생했습니다: {e}")
+        st.error(f"❌ 랭킹 데이터를 불러오는 중 오류가 발생했습니다: {e}")

@@ -3,6 +3,40 @@ import pandas as pd
 import math
 
 
+# 스타일 정의
+def get_style():
+    return """
+    <style>
+    /* 예선 리그전 입력창 글자 크기 및 레이아웃 확대 */
+    .match-row-num { margin-top: 8px; color: #64748B; font-weight: bold; font-size: 15px; }
+    .player-box-p1 { background-color: #EEF2FF; padding: 8px; text-align: center; border-radius: 6px; font-size: 17px !important; font-weight: 700; color: #312E81; border: 1px solid #C7D2FE; }
+    .player-box-p2 { background-color: #F0FDF4; padding: 8px; text-align: center; border-radius: 6px; font-size: 17px !important; font-weight: 700; color: #065F46; border: 1px solid #A7F3D0; }
+    .vs-divider { text-align: center; padding-top: 6px; font-weight: 800; font-size: 18px; color: #94A3B8; }
+
+    /* 등수 변경 및 순위표 타이포그래피 */
+    .rank-title { font-size: 18px !important; font-weight: bold; margin-bottom: 10px; }
+    .text-main-bold { font-size: 16px !important; font-weight: 700; color: #1E293B; }
+
+    /* 5위 이하 최종 종합 순위표 럭셔리 대시보드 스타일 */
+    .luxury-table-container { width: 100%; margin: 25px 0; background: #ffffff; border-radius: 14px; box-shadow: 0 4px 20px rgba(0,0,0,0.06); border: 1px solid #E2E8F0; overflow: hidden; }
+    .luxury-table { width: 100%; border-collapse: collapse; text-align: center; font-family: 'Pretendard', sans-serif; }
+    .luxury-table thead { background: linear-gradient(135deg, #4F46E5 0%, #3730A3 100%); border-bottom: 2px solid #E2E8F0; }
+    .luxury-table th { padding: 16px; color: #ffffff; font-weight: 600; font-size: 15px; letter-spacing: 0.05em; }
+    .luxury-table td { padding: 15px; border-bottom: 1px solid #F1F5F9; color: #1E293B; font-size: 15px; }
+    .luxury-table tbody tr:hover { background-color: #F8FAFC; transition: 0.2s; }
+    .rank-badge-item { background: linear-gradient(135deg, #EF4444 0%, #DC2626 100%); color: white; padding: 4px 12px; border-radius: 20px; font-weight: 700; font-size: 13px; box-shadow: 0 2px 4px rgba(239, 68, 68, 0.2); }
+    .name-cell-item { font-weight: 700; font-size: 16px; color: #0F172A; }
+    .wins-cell-item { color: #4F46E5; font-weight: 800; font-size: 16px; }
+    .text-plus-item { color: #2563EB; font-weight: 700; }
+    .text-minus-item { color: #DC2626; font-weight: 700; }
+    .text-gray-item { color: #64748B; font-weight: 500; }
+
+    /* 스핀박스 중앙 정렬 및 가시성 */
+    .stNumberInput input { font-size: 16px !important; font-weight: bold !important; text-align: center !important; }
+    </style>
+    """
+
+
 def generate_round_robin_matches(player_list):
     players = list(player_list)
     if len(players) % 2 != 0:
@@ -20,10 +54,16 @@ def generate_round_robin_matches(player_list):
 
 
 def run_tab_play(get_db_connection):
+    st.markdown(get_style(), unsafe_allow_html=True)
     st.header("3. 실시간 경기 진행 및 결과 기록")
+
+    # 💡 전역 소속 동호회 ID 확보
+    club_id = st.session_state.club_id
+
     try:
         conn = get_db_connection()
-        df_active_t = pd.read_sql("SELECT id, title FROM tournaments ORDER BY id DESC", conn)
+        query_t = "SELECT id, title FROM tournaments WHERE club_id = %s AND deleted_at IS NULL ORDER BY id DESC"
+        df_active_t = pd.read_sql(query_t, conn, params=(club_id,))
         conn.close()
     except:
         df_active_t = pd.DataFrame()
@@ -37,7 +77,7 @@ def run_tab_play(get_db_connection):
     try:
         conn = get_db_connection()
         df_players = pd.read_sql(
-            f"SELECT m.id, m.name, m.grade FROM tournament_players tp JOIN members m ON tp.member_id = m.id WHERE tp.tournament_id = {active_tour['id']} ORDER BY m.id ASC",
+            f"SELECT m.id, m.name, m.grade FROM tournament_players tp JOIN members m ON tp.member_id = m.id WHERE tp.tournament_id = {active_tour['id']} AND m.club_id = {club_id} ORDER BY m.id ASC",
             conn)
         df_saved_matches = pd.read_sql(
             f"SELECT group_idx, player1_id, player2_id, score_text FROM match_results WHERE tournament_id = {active_tour['id']}",
@@ -70,6 +110,8 @@ def run_tab_play(get_db_connection):
                     is_tournament_finished = True
 
     is_ui_disabled = is_game_started or is_tournament_finished
+
+    # ⭐ [권한 락 스위치] 관리자(admin)가 아니면 무조건 점수/순위 수정 원천 잠금
     is_score_locked = False if st.session_state.user_role == "admin" else True
 
     if is_tournament_finished:
@@ -118,7 +160,6 @@ def run_tab_play(get_db_connection):
     player_list = df_players.to_dict('records')
     final_pool = []
 
-    # 📉 전체 참가자의 예선 리그 성적을 추적하는 메인 딕셔너리
     all_league_stats = {}
     for p in player_list:
         all_league_stats[p['id']] = {
@@ -150,26 +191,24 @@ def run_tab_play(get_db_connection):
 
                 c_num, c_p1, c_s1, c_vs, c_s2, c_p2, c_btn = st.columns([0.8, 2.5, 1, 0.4, 1, 2.5, 1.2])
                 with c_num:
-                    st.markdown(f"<div style='margin-top:12px; color:gray;'>{idx + 1}경기</div>", unsafe_allow_html=True)
+                    st.markdown(f"<div class='match-row-num'>{idx + 1}경기</div>", unsafe_allow_html=True)
                 with c_p1:
-                    st.markdown(
-                        f"<div style='background-color:#F3F4F6; padding:6px; text-align:center;'><b>{p1['name']}</b></div>",
-                        unsafe_allow_html=True)
+                    st.markdown(f"<div class='player-box-p1'>{p1['name']}</div>", unsafe_allow_html=True)
                 with c_s1:
                     sc1 = st.number_input("🔹", min_value=0, max_value=3, value=v1, step=1, key=f"s1_{group_idx}_{idx}",
                                           label_visibility="collapsed", disabled=is_score_locked)
                 with c_vs:
-                    st.markdown("<div style='text-align:center; padding-top:4px;'>:</div>", unsafe_allow_html=True)
+                    st.markdown("<div class='vs-divider'>:</div>", unsafe_allow_html=True)
                 with c_s2:
                     sc2 = st.number_input("🔸", min_value=0, max_value=3, value=v2, step=1, key=f"s2_{group_idx}_{idx}",
                                           label_visibility="collapsed", disabled=is_score_locked)
                 with c_p2:
-                    st.markdown(
-                        f"<div style='background-color:#F3F4F6; padding:6px; text-align:center;'><b>{p2['name']}</b></div>",
-                        unsafe_allow_html=True)
+                    st.markdown(f"<div class='player-box-p2'>{p2['name']}</div>", unsafe_allow_html=True)
 
                 with c_btn:
-                    if st.button("💾 저장", key=f"b_{group_idx}_{idx}", use_container_width=True):
+                    # 💡 스코어 기록 버튼도 일반 회원일 경우 비활성화 처리
+                    if st.button("💾 저장", key=f"b_{group_idx}_{idx}", use_container_width=True,
+                                 disabled=is_score_locked):
                         if sc1 == 3 and sc2 == 3:
                             st.error("⚠️ 3:3 동점은 입력할 수 없습니다.")
                         elif sc1 != 3 and sc2 != 3:
@@ -184,6 +223,7 @@ def run_tab_play(get_db_connection):
                             conn.commit()
                             cur.close()
                             conn.close()
+                            st.toast(f"📢 {group_idx + 1}조 {idx + 1}경기 결과가 성공적으로 등록되었습니다!", icon="✅")
                             st.rerun()
 
             rank_stats = []
@@ -222,7 +262,7 @@ def run_tab_play(get_db_connection):
 
             rank_stats_sorted = sorted(rank_stats, key=lambda x: (x["승"], x["승자승점수"]), reverse=True)
 
-            st.markdown(f"#### 📊 {group_idx + 1}조 리그전 현재 순위 등수표")
+            st.markdown(f"<p class='rank-title'>📊 {group_idx + 1}조 리그전 현재 순위 등수표</p>", unsafe_allow_html=True)
             if f"manual_rank_{active_tour['id']}_{group_idx}" not in st.session_state:
                 st.session_state[f"manual_rank_{active_tour['id']}_{group_idx}"] = {}
             m_ranks = st.session_state[f"manual_rank_{active_tour['id']}_{group_idx}"]
@@ -242,14 +282,17 @@ def run_tab_play(get_db_connection):
                 c_b1, c_b2, c_b3, c_b4, c_b5 = st.columns([1, 2.5, 1.2, 1.2, 3.1])
                 medal = f"🥇 {default_rank}위" if default_rank == 1 else f"🥈 {default_rank}위" if default_rank == 2 else f"🥉 {default_rank}위" if default_rank == 3 else f"🏅 {default_rank}위"
                 c_b1.markdown(f"**{medal}**")
-                c_b2.markdown(f"**{stat['name']}** ({stat['grade']}부)")
-                c_b3.markdown(f"{stat['승']}승")
-                c_b4.markdown(f"{stat['득실차']:+d}")
+                c_b2.markdown(f"<span class='text-main-bold'>{stat['name']}</span> ({stat['grade']}부)",
+                              unsafe_allow_html=True)
+                c_b3.markdown(f"**{stat['승']}승**")
+                c_b4.markdown(f"**{stat['득실차']:+d}**")
 
                 with c_b5:
+                    # ⭐ [보안 핵심 패치] 일반 회원(`is_score_locked=True`)이 들어오면 등수 조정 폼 자체를 락(disabled) 겁니다.
                     new_rank = st.number_input(
                         f"등수 변경 {stat['name']}", min_value=1, max_value=len(group_players),
-                        value=int(default_rank), step=1, key=f"mr_{group_idx}_{p['id']}", label_visibility="collapsed"
+                        value=int(default_rank), step=1, key=f"mr_{group_idx}_{p['id']}",
+                        label_visibility="collapsed", disabled=is_score_locked
                     )
                     m_ranks[p['id']] = new_rank
 
@@ -263,8 +306,8 @@ def run_tab_play(get_db_connection):
 
             total_matches_count = len(round_matches)
             recorded_matches_count = sum(1 for (p1, p2) in round_matches if (
-            group_idx, p1['id'] if p1['id'] < p2['id'] else p2['id'],
-            p2['id'] if p1['id'] < p2['id'] else p1['id']) in db_scores)
+                group_idx, p1['id'] if p1['id'] < p2['id'] else p2['id'],
+                p2['id'] if p1['id'] < p2['id'] else p1['id']) in db_scores)
 
             if total_matches_count == recorded_matches_count:
                 st.markdown(f"##### 🏁 [{group_idx + 1}조 리그전 확정 최종 등수]")
@@ -382,31 +425,34 @@ def run_tab_play(get_db_connection):
 
                 c_m, c_p1, c_s1, c_vs, c_s2, c_p2, c_save = st.columns([1.0, 2.3, 1.1, 0.4, 1.1, 2.3, 1.2])
                 with c_m:
-                    st.markdown(f"<div style='margin-top:10px; font-weight:bold; color:#1E3A8A;'>매치 {idx + 1}</div>",
-                                unsafe_allow_html=True)
+                    st.markdown(
+                        f"<div style='margin-top:10px; font-weight:bold; color:#1E3A8A; font-size:15px;'>매치 {idx + 1}</div>",
+                        unsafe_allow_html=True)
                 with c_p1:
                     st.markdown(
-                        f"<div style='background-color:#ECFDF5; padding:6px; text-align:center; border-radius:4px;'><b>{p1['name']}</b> <span style='font-size:11px; color:gray;'>({p1['grade']}부)</span></div>",
+                        f"<div style='background-color:#ECFDF5; padding:8px; text-align:center; border-radius:6px; font-size:16px; border:1px solid #A7F3D0;'><b>{p1['name']}</b> <span style='font-size:12px; color:gray;'>({p1['grade']}부)</span></div>",
                         unsafe_allow_html=True)
                 with c_s1:
                     sc1 = st.number_input("🔹", min_value=0, max_value=3, value=v1, step=1,
                                           key=f"t1_{round_level}_{idx}", label_visibility="collapsed",
                                           disabled=is_score_locked)
                 with c_vs:
-                    st.markdown("<div style='text-align:center; padding-top:4px; font-weight:bold;'>:</div>",
-                                unsafe_allow_html=True)
+                    st.markdown(
+                        "<div style='text-align:center; padding-top:6px; font-weight:bold; font-size:16px;'>:</div>",
+                        unsafe_allow_html=True)
                 with c_s2:
                     sc2 = st.number_input("🔸", min_value=0, max_value=3, value=v2, step=1,
                                           key=f"t2_{round_level}_{idx}", label_visibility="collapsed",
                                           disabled=is_score_locked)
                 with c_p2:
                     st.markdown(
-                        f"<div style='background-color:#FFFBEB; padding:6px; text-align:center; border-radius:4px;'><b>{p2['name']}</b> <span style='font-size:11px; color:gray;'>({p2['grade']}부)</span></div>",
+                        f"<div style='background-color:#FFFBEB; padding:8px; text-align:center; border-radius:6px; font-size:16px; border:1px solid #FDE68A;'><b>{p2['name']}</b> <span style='font-size:12px; color:gray;'>({p2['grade']}부)</span></div>",
                         unsafe_allow_html=True)
 
                 with c_save:
+                    # 💡 본선 토너먼트 스코어 저장 버튼도 권한 잠금 연동
                     if st.button("💾 기록", key=f"tsave_{round_level}_{idx}", use_container_width=True,
-                                 type="secondary" if is_recorded else "primary"):
+                                 type="secondary" if is_recorded else "primary", disabled=is_score_locked):
                         if sc1 == 3 and sc2 == 3:
                             st.error("⚠️ 3:3 동점은 저장할 수 없습니다.")
                         elif sc1 != 3 and sc2 != 3:
@@ -421,12 +467,14 @@ def run_tab_play(get_db_connection):
                             conn.commit()
                             cur.close()
                             conn.close()
-                            st.toast(f"매치 {idx + 1} 결과 기록 완료!")
+                            st.toast(f"🎉 본선 {p_count}강 - 매치 {idx + 1} 스코어({final_score})가 확정되었습니다!", icon="🏆")
                             st.rerun()
 
             if p_count == 2 and round_all_clear and any_valid_match:
                 if len(next_round_players) > 0:
-                    st.balloons()
+                    # 대회가 진짜 마무리되었을 때의 세레머니 및 결과 보드 표출
+                    if not is_score_locked:
+                        st.balloons()
                     st.success(f"🏆 축하합니다!! 본 대회의 최종 우승자는 **[{next_round_players[0]['name']}]** 선수입니다!!")
 
                     st.markdown("---")
@@ -447,9 +495,6 @@ def run_tab_play(get_db_connection):
                             f"<div style='background-color:#FFEDD5; padding:15px; border-radius:8px; text-align:center; border:2px solid #F97316;'><h5>🥉 공동 3위</h5><h4 style='color:#C2410C; margin-top:8px;'>{th3_players}</h4></div>",
                             unsafe_allow_html=True)
 
-                    # -------------------------------------------------------------
-                    # 🏁 [HTML 깨짐 수정 패치 완료] 커스텀 스타일 테이블 구역
-                    # -------------------------------------------------------------
                     if all_league_stats:
                         st.markdown("### 📉 5위 이하 최종 종합 순위표 (토너먼트 성적 + 리그 세트득실 합산)")
 
@@ -469,38 +514,28 @@ def run_tab_play(get_db_connection):
                                     "l_diff": f"{item['득실차']:+d} 세트"
                                 })
 
-                            # 파싱 충돌을 방지하기 위해 HTML 코드의 들여쓰기를 완벽히 제거(바짝 붙임) 처리
-                            html_table = "<style>"
-                            html_table += ".custom-table { width: 100%; border-collapse: collapse; margin: 15px 0; font-size: 15px; font-family: 'Malgun Gothic', sans-serif; text-align: center; background-color: #ffffff; border-radius: 8px; overflow: hidden; box-shadow: 0 4px 6px rgba(0, 0, 0, 0.05); }"
-                            html_table += ".custom-table thead tr { background-color: #4F46E5; color: #ffffff; font-weight: bold; height: 45px; }"
-                            html_table += ".custom-table th, .custom-table td { padding: 12px 15px; border-bottom: 1px solid #E5E7EB; }"
-                            html_table += ".custom-table tbody tr { transition: background-color 0.2s ease; }"
-                            html_table += ".custom-table tbody tr:hover { background-color: #F9FAFB; }"
-                            html_table += ".custom-table tbody tr:last-of-type { border-bottom: 2px solid #4F46E5; }"
-                            html_table += ".rank-badge { background-color: #EF4444; color: white; padding: 3px 8px; border-radius: 4px; font-weight: bold; font-size: 13px; }"
-                            html_table += ".text-bold { font-weight: bold; color: #1F2937; }"
-                            html_table += ".text-gray { color: #6B7280; }"
-                            html_table += ".text-plus { color: #2563EB; font-weight: bold; }"
-                            html_table += ".text-minus { color: #DC2626; font-weight: bold; }"
-                            html_table += "</style>"
-                            html_table += "<table class='custom-table'>"
+                            html_table = "<div class='luxury-table-container'>"
+                            html_table += "<table class='luxury-table'>"
                             html_table += "<thead><tr><th>최종 순위</th><th>선수명</th><th>부수</th><th>토너먼트 성적</th><th>예선 리그 승수</th><th>예선 세트 득실차</th></tr></thead>"
                             html_table += "<tbody>"
 
                             for row in display_data:
-                                diff_class = "text-plus" if "+" in row['l_diff'] else "text-minus" if "-" in row[
-                                    'l_diff'] and row['l_diff'] != "-0 세트" else "text-gray"
+                                diff_class = "text-plus-item" if "+" in row['l_diff'] else "text-minus-item" if "-" in \
+                                                                                                                row[
+                                                                                                                    'l_diff'] and "0" not in \
+                                                                                                                row[
+                                                                                                                    'l_diff'] else "text-gray-item"
 
                                 html_table += "<tr>"
-                                html_table += f"<td><span class='rank-badge'>{row['rank']}</span></td>"
-                                html_table += f"<td class='text-bold'>{row['name']}</td>"
-                                html_table += f"<td><span class='text-gray'>{row['grade']}</span></td>"
-                                html_table += f"<td style='color: #4F46E5; font-weight: 500;'>{row['t_result']}</td>"
-                                html_table += f"<td class='text-bold'>{row['l_wins']}</td>"
+                                html_table += f"<td><span class='rank-badge-item'>{row['rank']}</span></td>"
+                                html_table += f"<td class='name-cell-item'>{row['name']}</td>"
+                                html_table += f"<td><span class='text-gray-item'>{row['grade']}</span></td>"
+                                html_table += f"<td style='color: #4F46E5; font-weight: 600;'>{row['t_result']}</td>"
+                                html_table += f"<td class='wins-cell-item'>{row['l_wins']}</td>"
                                 html_table += f"<td class='{diff_class}'>{row['l_diff']}</td>"
                                 html_table += "</tr>"
 
-                            html_table += "</tbody></table>"
+                            html_table += "</tbody></table></div>"
 
                             st.markdown(html_table, unsafe_allow_html=True)
                         else:
