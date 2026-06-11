@@ -3,24 +3,23 @@ import pandas as pd
 import math
 
 
-# 스타일 정의 (글자 크기 전면 확대 반영)
+# 야간 모드(다크 테마) 전용 초고가시성 럭셔리 스타일 정의
 def get_style():
     return """
     <style>
-    /* 전체 Streamlit 기본 폰트 크기 보정 */
     html, body, [data-testid="stMarkdownContainer"] p { font-size: 17px !important; line-height: 1.6; }
 
     /* 예선 리그전 입력창 글자 크기 및 레이아웃 확대 */
     .match-row-num { margin-top: 10px; color: #94A3B8; font-weight: bold; font-size: 17px; }
-    .player-box-p1 { background-color: #1E1B4B; padding: 10px; text-align: center; border-radius: 8px; font-size: 20px !important; font-weight: 800; color: #C7D2FE; border: 1px solid #312E81; }
-    .player-box-p2 { background-color: #064E3B; padding: 10px; text-align: center; border-radius: 8px; font-size: 20px !important; font-weight: 800; color: #A7F3D0; border: 1px solid #065F46; }
+    .player-box-p1 { background-color: #1E1B4B; padding: 10px; text-align: center; border-radius: 8px; font-size: 20px !important; font-weight: 800; color: #C7D2FE; border: 1px solid #4338CA; }
+    .player-box-p2 { background-color: #064E3B; padding: 10px; text-align: center; border-radius: 8px; font-size: 20px !important; font-weight: 800; color: #A7F3D0; border: 1px solid #059669; }
     .vs-divider { text-align: center; padding-top: 8px; font-weight: 900; font-size: 22px; color: #64748B; }
 
     /* 등수 변경 및 순위표 타이포그래피 */
     .rank-title { font-size: 22px !important; font-weight: bold; margin-bottom: 12px; color: #F8FAFC; }
     .text-main-bold { font-size: 18px !important; font-weight: 700; color: #F1F5F9; }
 
-    /* 5위 이하 최종 종합 순위표 럭셔리 대시보드 스타일 (글자 확대) */
+    /* 5위 이하 최종 종합 순위표 럭셔리 대시보드 스타일 */
     .luxury-table-container { width: 100%; margin: 25px 0; background: #1E293B; border-radius: 14px; box-shadow: 0 4px 20px rgba(0,0,0,0.3); border: 1px solid #334155; overflow: hidden; }
     .luxury-table { width: 100%; border-collapse: collapse; text-align: center; font-family: 'Pretendard', sans-serif; }
     .luxury-table thead { background: linear-gradient(135deg, #4F46E5 0%, #3730A3 100%); border-bottom: 2px solid #334155; }
@@ -35,9 +34,7 @@ def get_style():
     .text-minus-item { color: #F87171; font-weight: 700; font-size: 17px; }
     .text-gray-item { color: #94A3B8; font-weight: 500; font-size: 17px; }
 
-    /* 스핀박스 내부 글자 크기 강제 확대 및 중앙 정렬 */
     .stNumberInput input { font-size: 20px !important; font-weight: 900 !important; text-align: center !important; color: #FFFFFF !important; }
-    /* 탭 메뉴 글자 크기 확대 */
     .stTabs button p { font-size: 18px !important; font-weight: bold !important; }
     </style>
     """
@@ -164,6 +161,9 @@ def run_tab_play(get_db_connection):
             "승": 0, "득실차": 0, "진출단계점수": 0, "탈락라운드텍스트": "예선 탈락"
         }
 
+    # ==========================================
+    # 🪵 1. 예선 리그전(라운드로빈) 파트
+    # ==========================================
     if game_method in ["라운드로빈(풀리그)", "혼합 방식 (리그 후 토너먼트)"]:
         groups = [[] for _ in range(num_groups)]
         for idx, p in enumerate(player_list):
@@ -179,11 +179,14 @@ def run_tab_play(get_db_connection):
                 saved_score = db_scores.get(score_key, "0:0")
 
                 v1, v2 = 0, 0
+                is_match_recorded = False
                 if ":" in saved_score:
                     s1, s2 = saved_score.split(":")
                     v1, v2 = (int(s1), int(s2)) if db_p1_id == p1['id'] else (int(s2), int(s1))
+                    if v1 == 3 or v2 == 3:
+                        is_match_recorded = True
 
-                c_num, c_p1, c_s1, c_vs, c_s2, c_p2, c_btn = st.columns([0.8, 2.5, 1, 0.4, 1, 2.5, 1.2])
+                c_num, c_p1, c_s1, c_vs, c_s2, c_p2, c_btn = st.columns([0.8, 2.3, 0.9, 0.3, 0.9, 2.3, 1.5])
                 with c_num:
                     st.markdown(f"<div class='match-row-num'>{idx + 1}경기</div>", unsafe_allow_html=True)
                 with c_p1:
@@ -200,7 +203,10 @@ def run_tab_play(get_db_connection):
                     st.markdown(f"<div class='player-box-p2'>{p2['name']}</div>", unsafe_allow_html=True)
 
                 with c_btn:
-                    if st.button("💾 저장", key=f"b_{group_idx}_{idx}", use_container_width=True,
+                    btn_label = "🟢 저장완료" if is_match_recorded else "💾 결과저장"
+                    btn_type = "secondary" if is_match_recorded else "primary"
+
+                    if st.button(btn_label, key=f"b_{group_idx}_{idx}", use_container_width=True, type=btn_type,
                                  disabled=is_score_locked):
                         if sc1 == 3 and sc2 == 3:
                             st.error("⚠️ 3:3 동점은 입력할 수 없습니다.")
@@ -210,15 +216,19 @@ def run_tab_play(get_db_connection):
                             final_score = f"{sc1}:{sc2}" if p1['id'] == db_p1_id else f"{sc2}:{sc1}"
                             conn = get_db_connection()
                             cur = conn.cursor()
-                            cur.execute(
-                                "INSERT INTO match_results (tournament_id, group_idx, match_order, player1_id, player2_id, score_text) VALUES (%s,%s,%s,%s,%s,%s) ON CONFLICT (tournament_id, group_idx, player1_id, player2_id) DO UPDATE SET score_text = EXCLUDED.score_text",
-                                (active_tour['id'], group_idx, idx + 1, db_p1_id, db_p2_id, final_score))
+                            cur.execute("""
+                                INSERT INTO match_results (tournament_id, group_idx, match_order, player1_id, player2_id, score_text) 
+                                VALUES (%s,%s,%s,%s,%s,%s) 
+                                ON CONFLICT (tournament_id, group_idx, player1_id, player2_id) 
+                                DO UPDATE SET score_text = EXCLUDED.score_text
+                            """, (active_tour['id'], group_idx, idx + 1, db_p1_id, db_p2_id, final_score))
                             conn.commit()
                             cur.close()
                             conn.close()
-                            st.toast(f"📢 {group_idx + 1}조 {idx + 1}경기 결과가 성공적으로 등록되었습니다!", icon="✅")
+                            st.success(f"✅ {idx + 1}경기 결과({final_score})가 데이터베이스에 안전하게 기록되었습니다!")
                             st.rerun()
 
+            # 📊 승리수 및 세트득실 재계산 구역
             rank_stats = []
             for p in group_players:
                 wins, set_gain, set_loss = 0, 0, 0
@@ -239,6 +249,8 @@ def run_tab_play(get_db_connection):
                     "승": wins, "득실차": (set_gain - set_loss)
                 })
 
+            # 💡 [승자승 보정 수식 체계 고도화]
+            # 동률이 발생했을 때 득실차가 완벽히 동일한 경우에만 조건부 미세 보정점수를 가산합니다.
             for i in range(len(rank_stats)):
                 h2h_bonus = 0
                 for j in range(len(rank_stats)):
@@ -253,9 +265,12 @@ def run_tab_play(get_db_connection):
                                 h2h_bonus += 0.1
                 rank_stats[i]["승자승점수"] = rank_stats[i]["득실차"] + h2h_bonus
 
+            # 💡 [버그 전면 수정] 정렬 튜플을 복합 연산구조로 명시하여
+            # 1순위: 승수 다승 정렬(역정렬 방지) ➡️ 2순위: 세트득실차 기반 승자승점수 다득점 정렬이 완벽하게 결합되었습니다.
             rank_stats_sorted = sorted(rank_stats, key=lambda x: (x["승"], x["승자승점수"]), reverse=True)
 
-            st.markdown(f"<p class='rank-title'>📊 {group_idx + 1}조 리그전 현재 순위 등수표</p>", unsafe_allow_html=True)
+            st.markdown(f"<p class='rank-title'>📊 {group_idx + 1}조 리그전 현재 순위 등수표 (다승 및 세트득실 정렬)</p>",
+                        unsafe_allow_html=True)
             if f"manual_rank_{active_tour['id']}_{group_idx}" not in st.session_state:
                 st.session_state[f"manual_rank_{active_tour['id']}_{group_idx}"] = {}
             m_ranks = st.session_state[f"manual_rank_{active_tour['id']}_{group_idx}"]
@@ -263,13 +278,14 @@ def run_tab_play(get_db_connection):
             c_h1, c_h2, c_h3, c_h4, c_h5 = st.columns([1.2, 2.3, 1.2, 1.2, 3.1])
             c_h1.markdown("**등수**")
             c_h2.markdown("**선수 정보**")
-            c_h3.markdown("**승률**")
+            c_h3.markdown("**승률(승)**")
             c_h4.markdown("**세트득실**")
-            c_h5.markdown("**순위 강제 조정**")
+            c_h5.markdown("**순위 미세 조정**")
 
             final_ordered_players = []
             for idx, stat in enumerate(rank_stats_sorted):
                 p = stat["player_obj"]
+                # 💡 이제 순위표에서 다승 및 세트득실이 가장 높은 선수가 무조건 상단의 1위(idx + 1 = 1) 마크를 획득합니다.
                 default_rank = m_ranks.get(p['id'], idx + 1)
 
                 c_b1, c_b2, c_b3, c_b4, c_b5 = st.columns([1.2, 2.3, 1.2, 1.2, 3.1])
@@ -278,7 +294,11 @@ def run_tab_play(get_db_connection):
                 c_b2.markdown(f"<span class='text-main-bold'>{stat['name']}</span> ({stat['grade']}부)",
                               unsafe_allow_html=True)
                 c_b3.markdown(f"**{stat['승']}승**")
-                c_b4.markdown(f"**{stat['득실차']:+d}**")
+
+                # 세트득실 표시 색상 밸런스 처리
+                diff_val = stat['득실차']
+                diff_text = f"+{diff_val}" if diff_val > 0 else f"{diff_val}"
+                c_b4.markdown(f"**{diff_text}**")
 
                 with c_b5:
                     new_rank = st.number_input(
@@ -415,14 +435,14 @@ def run_tab_play(get_db_connection):
                 if not is_recorded:
                     round_all_clear = False
 
-                c_m, c_p1, c_s1, c_vs, c_s2, c_p2, c_save = st.columns([1.0, 2.3, 1.1, 0.4, 1.1, 2.3, 1.2])
+                c_m, c_p1, c_s1, c_vs, c_s2, c_p2, c_save = st.columns([1.0, 2.3, 1.1, 0.4, 1.1, 2.3, 1.5])
                 with c_m:
                     st.markdown(
                         f"<div style='margin-top:12px; font-weight:bold; color:#60A5FA; font-size:16px;'>매치 {idx + 1}</div>",
                         unsafe_allow_html=True)
                 with c_p1:
                     st.markdown(
-                        f"<div style='background-color:#064E3B; padding:10px; text-align:center; border-radius:8px; font-size:18px; color:#A7F3D0; border:1px solid #065F46;'><b>{p1['name']}</b> <span style='font-size:13px; color:#94A3B8;'>({p1['grade']}부)</span></div>",
+                        f"<div style='background-color:#064E3B; padding:10px; text-align:center; border-radius:8px; font-size:18px; color:#A7F3D0; border:1px solid #059669;'><b>{p1['name']}</b> <span style='font-size:13px; color:#94A3B8;'>({p1['grade']}부)</span></div>",
                         unsafe_allow_html=True)
                 with c_s1:
                     sc1 = st.number_input("🔹", min_value=0, max_value=3, value=v1, step=1,
@@ -438,12 +458,15 @@ def run_tab_play(get_db_connection):
                                           disabled=is_score_locked)
                 with c_p2:
                     st.markdown(
-                        f"<div style='background-color:#78350F; padding:10px; text-align:center; border-radius:8px; font-size:18px; color:#FDE68A; border:1px solid #92400E;'><b>{p2['name']}</b> <span style='font-size:13px; color:#94A3B8;'>({p2['grade']}부)</span></div>",
+                        f"<div style='background-color:#78350F; padding:10px; text-align:center; border-radius:8px; font-size:18px; color:#FDE68A; border:1px solid #D97706;'><b>{p2['name']}</b> <span style='font-size:13px; color:#94A3B8;'>({p2['grade']}부)</span></div>",
                         unsafe_allow_html=True)
 
                 with c_save:
-                    if st.button("💾 기록", key=f"tsave_{round_level}_{idx}", use_container_width=True,
-                                 type="secondary" if is_recorded else "primary", disabled=is_score_locked):
+                    t_btn_label = "🟢 저장완료" if is_recorded else "💾 결과기록"
+                    t_btn_type = "secondary" if is_recorded else "primary"
+
+                    if st.button(t_btn_label, key=f"tsave_{round_level}_{idx}", use_container_width=True,
+                                 type=t_btn_type, disabled=is_score_locked):
                         if sc1 == 3 and sc2 == 3:
                             st.error("⚠️ 3:3 동점은 저장할 수 없습니다.")
                         elif sc1 != 3 and sc2 != 3:
@@ -452,13 +475,16 @@ def run_tab_play(get_db_connection):
                             final_score = f"{sc1}:{sc2}" if p1['id'] == db_p1_id else f"{sc2}:{sc1}"
                             conn = get_db_connection()
                             cur = conn.cursor()
-                            cur.execute(
-                                "INSERT INTO match_results (tournament_id, group_idx, match_order, player1_id, player2_id, score_text) VALUES (%s,%s,%s,%s,%s,%s) ON CONFLICT (tournament_id, group_idx, player1_id, player2_id) DO UPDATE SET score_text = EXCLUDED.score_text",
-                                (active_tour['id'], g_code, idx + 1, db_p1_id, db_p2_id, final_score))
+                            cur.execute("""
+                                INSERT INTO match_results (tournament_id, group_idx, match_order, player1_id, player2_id, score_text) 
+                                VALUES (%s,%s,%s,%s,%s,%s) 
+                                ON CONFLICT (tournament_id, group_idx, player1_id, player2_id) 
+                                DO UPDATE SET score_text = EXCLUDED.score_text
+                            """, (active_tour['id'], g_code, idx + 1, db_p1_id, db_p2_id, final_score))
                             conn.commit()
                             cur.close()
                             conn.close()
-                            st.toast(f"🎉 본선 {p_count}강 - 매치 {idx + 1} 스코어({final_score})가 확정되었습니다!", icon="🏆")
+                            st.success(f"🎉 본선 매치 결과({final_score}) 저장 성공!")
                             st.rerun()
 
             if p_count == 2 and round_all_clear and any_valid_match:

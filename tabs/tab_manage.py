@@ -1,157 +1,165 @@
 import streamlit as st
 import pandas as pd
-import datetime
 
 
 def run_tab_manage(get_db_connection):
-    st.header("2. 대회 관리 및 선수 선발")
+    st.header("2.🏆 신규 대회 생성 및 출전 명단 선발")
 
-    # 💡 전역 소속 동호회 ID 확보
     club_id = st.session_state.club_id
+    user_role = st.session_state.user_role
 
-    if st.session_state.user_role != "admin":
-        st.warning("🔒 이 탭은 **관리자 전용** 공간입니다. 일반 회원은 대회를 관리할 수 없습니다.")
-    else:
-        # 화면을 좌우 1:1 비율로 분할
-        col_t_create, col_t_p_select = st.columns([1, 1])
+    if user_role != "admin":
+        st.warning("⚠️ 대회 생성 및 수정 권한은 '동호회 운영진(관리자)' 계정에게만 부여됩니다. 일반 회원은 관전만 가능합니다.")
+        return
 
-        # -------------------------------------------------------------
-        # 🧱 좌측: 새로운 대회 개설 및 대회 선택
-        # -------------------------------------------------------------
-        with col_t_create:
-            st.subheader("새로운 대회 개설")
-            with st.form("tour_form", clear_on_submit=True):
-                t_title = st.text_input("대회 명칭", placeholder="예: 2026년 오월 리그전")
-                t_date = st.date_input("대회 개최 날짜", value=datetime.date.today())
+    # ==========================================
+    # ➕ 1 구역: 신규 대회 생성 폼 (날짜 선택 추가)
+    # ==========================================
+    st.subheader("🆕 새로운 탁구 대회 개설")
+    with st.form("create_tournament_form", clear_on_submit=True):
+        t_title = st.text_input("🏆 대회 명칭 입력", placeholder="예: 2026년 6월 용호메이트 정기 랭킹전")
 
-                if st.form_submit_button("대회 생성"):
-                    if t_title:
-                        try:
-                            conn = get_db_connection()
-                            cur = conn.cursor()
-                            # 💡 대회를 생성할 때 현재 로그인한 동호회 고유 ID(club_id)를 정확히 바인딩합니다.
-                            cur.execute(
-                                "INSERT INTO tournaments (club_id, title, status) VALUES (%s, %s, 'setup')",
-                                (club_id, t_title.strip())
-                            )
-                            conn.commit()
-                            cur.close()
-                            conn.close()
-                            st.success(f"🎉 대회 [{t_title}]가 성공적으로 개설되었습니다.")
-                            st.rerun()
-                        except Exception as e:
-                            st.error(f"❌ 대회 생성 실패: {e}")
-                    else:
-                        st.warning("대회 명칭을 입력해 주세요.")
+        # 📅 [신규 추가] 대회 날짜 선택 달력 위젯
+        t_date = st.date_input("📅 대회 개최 날짜 선택", value=pd.Timestamp.now().date())
 
-            st.markdown("---")
-            st.subheader("개설된 대회 선택")
-            try:
-                conn = get_db_connection()
-                # 💡 [오타 수정 완료] SQL 내부의 잘못된 파이썬 주석 구문을 완전히 걷어냈습니다.
-                query = "SELECT id, title, created_at FROM tournaments WHERE club_id = %s AND deleted_at IS NULL ORDER BY id DESC"
-                df_t = pd.read_sql(query, conn, params=(club_id,))
-                conn.close()
-
-                if not df_t.empty:
-                    df_t_view = df_t[["created_at", "title"]].copy()
-                    df_t_view.columns = ["개최 등록일시", "대회 명칭"]
-
-                    st.markdown("👇 **선수를 선발할 대회를 아래 명단에서 클릭해 주세요.**")
-                    selected_rows = st.dataframe(
-                        df_t_view,
-                        use_container_width=True,
-                        hide_index=True,
-                        on_select="rerun",
-                        selection_mode="single-row",
-                        key="admin_tour_dataframe"
-                    )
-                    clicked_index = selected_rows.get("selection", {}).get("rows", [])
-                else:
-                    clicked_index = []
-            except Exception as e:
-                df_t, clicked_index = pd.DataFrame(columns=["id", "title", "created_at"]), []
-
-        # -------------------------------------------------------------
-        # 🎯 우측: 대회별 출전 선수 선발
-        # -------------------------------------------------------------
-        with col_t_p_select:
-            st.subheader("대회별 출전 선수 다중 선발")
-            if df_t.empty:
-                st.warning("대회를 먼저 생성해야 선수를 선발할 수 있습니다.")
-            else:
-                tour_options = df_t.to_dict('records')
-                selected_t = st.selectbox(
-                    "대상 대회를 선택하세요",
-                    tour_options,
-                    index=clicked_index[0] if clicked_index else 0,
-                    format_func=lambda x: f"{x['title']}"
-                )
-
+        if st.form_submit_button("🚀 신규 대회 개설하기", use_container_width=True):
+            if t_title.strip():
                 try:
                     conn = get_db_connection()
-                    # 1. 우리 동호회 소속이면서 정상 활동 중인('active') 회원 전체 목록 로드
-                    df_all_m = pd.read_sql(
-                        "SELECT id, name, grade FROM members WHERE club_id = %s AND status = 'active' ORDER BY name ASC",
-                        conn, params=(club_id,))
-
-                    # 2. 이미 이 대회에 선발되어 있는 우리 동호회 선수 ID 목록 로드
-                    df_current_p = pd.read_sql(
-                        f"SELECT m.id, m.name, m.grade FROM tournament_players tp JOIN members m ON tp.member_id = m.id WHERE tp.tournament_id = {selected_t['id']} AND m.club_id = {club_id} ORDER BY m.name ASC",
-                        conn
-                    )
+                    cur = conn.cursor()
+                    # 💡 새로 추가한 tournament_date 컬럼에 선택한 날짜를 삽입합니다.
+                    cur.execute("""
+                        INSERT INTO tournaments (club_id, title, status, tournament_date) 
+                        VALUES (%s, %s, 'setup', %s)
+                    """, (club_id, t_title.strip(), t_date))
+                    conn.commit()
+                    cur.close()
                     conn.close()
-                except:
-                    df_all_m, df_current_p = pd.DataFrame(), pd.DataFrame()
+                    st.success(f"🎉 [{t_title}] 대회가 성공적으로 개설되었습니다! 아래에서 참가 선수를 선발해 주세요.")
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"❌ 대회 생성 실패 (DB 오류): {e}")
+            else:
+                st.warning("⚠️ 대회 명칭을 입력해 주세요.")
 
-                # 이미 등록된 선수 ID를 set 형태로 추출하여 비교 속도 최적화
-                already_selected_ids = set(df_current_p['id'].tolist()) if not df_current_p.empty else set()
+    st.markdown("---")
 
-                if not df_all_m.empty:
-                    st.markdown("💡 **이번 대회에 출전할 회원들을 체크박스로 모두 선택한 후 하단의 [일괄 등록] 버튼을 눌러주세요.**")
+    # ==========================================
+    # 🏃 2 구역: 진행 중인 대회 선택 및 참가 선수 명단 빌드
+    # ==========================================
+    st.subheader("👥 대회별 출전 선수 명단 구성")
 
-                    selected_member_ids = []
+    try:
+        conn = get_db_connection()
+        # 💡 [UX 개선] 대회 목록을 보여줄 때 언제 열린 대회인지 날짜(tournament_date)도 함께 조회합니다.
+        query_t = "SELECT id, title, status, tournament_date FROM tournaments WHERE club_id = %s AND deleted_at IS NULL ORDER BY id DESC"
+        df_tournaments = pd.read_sql(query_t, conn, params=(club_id,))
+        conn.close()
+    except Exception as e:
+        df_tournaments = pd.DataFrame()
+        st.error(f"대회 목록 로드 실패: {e}")
 
-                    with st.container(height=300, border=True):
-                        for _, row in df_all_m.iterrows():
-                            m_id = int(row['id'])
-                            m_name = row['name']
-                            m_grade = row['grade']
+    if df_tournaments.empty:
+        st.info("ℹ️ 현재 개설된 대회가 없습니다. 먼저 상단에서 대회를 생성해 주세요.")
+        return
 
-                            if m_id in already_selected_ids:
-                                st.checkbox(f"✅ {m_name} ({m_grade}부) - [선발 완료]", value=True, disabled=True,
-                                            key=f"chk_done_{m_id}")
-                            else:
-                                is_checked = st.checkbox(f"⬜ {m_name} ({m_grade}부)", value=False, key=f"chk_new_{m_id}")
-                                if is_checked:
-                                    selected_member_ids.append(m_id)
+    tour_options = df_tournaments.to_dict('records')
+    # 💡 [UX 개선] 셀렉트박스 목록에 (2026-06-11) 같은 형식으로 개최 날짜가 직관적으로 표시되도록 포맷팅
+    selected_tour = st.selectbox(
+        "선수 명단을 구성할 대회를 고르세요",
+        tour_options,
+        format_func=lambda
+            x: f"📅 ({x['tournament_date']}) {x['title']} [{'🎮 진행중' if x['status'] == 'playing' else '🏆 종료됨' if x['status'] == 'finished' else '⚙️ 대기중'}]"
+    )
 
-                    # 🚀 선택된 인원 일괄 저장 버튼
-                    if st.button(f"🚀 선택한 {len(selected_member_ids)}명 한 번에 출전 명단에 추가", use_container_width=True,
-                                 type="primary"):
-                        if not selected_member_ids:
-                            st.warning("선택된 회원이 없습니다. 체크박스에 체크해 주세요.")
-                        else:
-                            try:
-                                conn = get_db_connection()
-                                cur = conn.cursor()
-                                insert_query = "INSERT INTO tournament_players (tournament_id, member_id) VALUES (%s, %s)"
-                                for target_id in selected_member_ids:
-                                    cur.execute(insert_query, (selected_t['id'], target_id))
-                                conn.commit()
-                                cur.close()
-                                conn.close()
-                                st.success(f"🎉 성공적으로 {len(selected_member_ids)}명의 선수를 일괄 추가했습니다!")
-                                st.rerun()
-                            except Exception as e:
-                                st.error(f"❌ 등록 중 오류가 발생했습니다: {e}")
+    if not selected_tour:
+        return
 
-                st.markdown("---")
-                st.markdown(f"📊 **현재 대회 출전 확정 인원:** 총 `{len(df_current_p)}`명")
+    try:
+        conn = get_db_connection()
+        query_m = "SELECT id, name, grade, username FROM members WHERE club_id = %s AND status = 'active' ORDER BY grade ASC, name ASC"
+        df_members = pd.read_sql(query_m, conn, params=(club_id,))
 
-                if not df_current_p.empty:
-                    df_p_view = df_current_p[["name", "grade"]].copy()
-                    df_p_view.columns = ["선수명", "신청 부수"]
-                    st.dataframe(df_p_view, use_container_width=True, hide_index=True)
-                else:
-                    st.info("아직 이 대회에 선발된 선수가 없습니다.")
+        query_p = "SELECT member_id FROM tournament_players WHERE tournament_id = %s"
+        df_players = pd.read_sql(query_p, conn, params=(selected_tour['id'],))
+        conn.close()
+    except Exception as e:
+        df_members, df_players = pd.DataFrame(), pd.DataFrame()
+        st.error(f"데이터 로드 실패: {e}")
+
+    if df_members.empty:
+        st.warning("⚠️ 동호회에 등록된 정회원이 없습니다. 회원 DB 관리 탭에서 회원을 먼저 등록해 주세요.")
+        return
+
+    registered_player_ids = set(df_players['member_id'].tolist())
+
+    search_player = st.text_input("🔍 출전시킬 선수의 이름을 검색하세요 (실시간 필터링)", placeholder="선수 이름 입력", key="search_tour_p")
+
+    filtered_members = df_members.copy()
+    if search_player.strip():
+        filtered_members = filtered_members[filtered_members['name'].str.contains(search_player.strip(), case=False)]
+
+    st.markdown(f"📊 **선택된 대회:** `{selected_tour['title']}` (현재 선발된 인원: **{len(registered_player_ids)}명**)")
+    st.caption("💡 오늘 경기에 참여하는 선수들을 모두 체크한 후 하단의 [💾 출전 명단 최종 저장] 버튼을 눌러주세요.")
+
+    with st.form(f"player_selection_form_{selected_tour['id']}"):
+        selected_member_ids = []
+        cols = st.columns(3)
+
+        for idx, row in filtered_members.iterrows():
+            m_id = int(row['id'])
+            m_name = row['name']
+            m_grade = row['grade']
+            m_user = row['username']
+
+            is_checked = m_id in registered_player_ids
+
+            with cols[idx % 3]:
+                chk = st.checkbox(f"{m_name} ({m_grade}부) [ID:{m_user}]", value=is_checked,
+                                  key=f"chk_{selected_tour['id']}_{m_id}")
+                if chk:
+                    selected_member_ids.append(m_id)
+
+        if st.form_submit_button("💾 출전 명단 최종 저장 및 동기화", use_container_width=True, type="primary"):
+            try:
+                conn = get_db_connection()
+                cur = conn.cursor()
+
+                cur.execute("DELETE FROM tournament_players WHERE tournament_id = %s", (selected_tour['id'],))
+
+                for mem_id in selected_member_ids:
+                    cur.execute("""
+                        INSERT INTO tournament_players (tournament_id, member_id) 
+                        VALUES (%s, %s)
+                        ON CONFLICT (tournament_id, member_id) DO NOTHING
+                    """, (selected_tour['id'], mem_id))
+
+                conn.commit()
+                cur.close()
+                conn.close()
+                st.success(f"✅ 명단 저장 완료! 총 {len(selected_member_ids)}명의 출전 선수가 확정되었습니다.")
+                st.rerun()
+            except Exception as e:
+                st.error(f"❌ 명단 저장 중 오류가 발생했습니다: {e}")
+
+    # ==========================================
+    # 🚨 3 구역: 위험 관리 (대회 삭제 제어판)
+    # ==========================================
+    st.markdown("<br><br>", unsafe_allow_html=True)
+    with st.expander("🚨 위험 관리 구역 (대회 영구 삭제 및 관리)"):
+        st.write("선택한 대회의 모든 경기 성적, 매치 스코어 및 출전 명단 데이터가 시스템에서 숨김 처리됩니다.")
+        del_confirm = st.checkbox(f"정말로 [{selected_tour['title']}] 대회를 삭제하시는 것에 동의합니까?")
+
+        if st.button("🗑️ 선택한 대회 삭제 실행", use_container_width=True, type="secondary", disabled=not del_confirm):
+            try:
+                conn = get_db_connection()
+                cur = conn.cursor()
+                cur.execute("UPDATE tournaments SET deleted_at = CURRENT_TIMESTAMP WHERE id = %s",
+                            (selected_tour['id'],))
+                conn.commit()
+                cur.close()
+                conn.close()
+                st.toast(f"🚫 [{selected_tour['title']}] 대회가 안전하게 삭제되었습니다.")
+                st.rerun()
+            except Exception as e:
+                st.error(f"대회 삭제 실패: {e}")
