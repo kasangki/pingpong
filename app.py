@@ -271,7 +271,7 @@ else:
 if not st.session_state.logged_in:
 
     # ⚙️ ⭐ [SaaS 인프라 롤백 스위치] 나중에 동호회 개설 기능을 되살릴 때 아래 False를 True로만 바꾸시면 원클릭 부활합니다!
-    is_dev_mode = False
+    is_dev_mode = True
 
     if is_dev_mode:
         auth_mode = st.radio("⚙️ 원하시는 작업을 선택하세요", ["기존 동호회 로그인 및 가입", "🏢 우리 탁구 동호회 신규 개설하기"], horizontal=True)
