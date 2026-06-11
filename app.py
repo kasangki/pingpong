@@ -128,6 +128,14 @@ st.markdown("""
         box-shadow: none !important;
         padding: 0 !important;
     }
+
+    /* 🚀 [모바일 최종 패치] 휴대폰 접속 시 우측 하단에 나타나는 share.streamlit.io 배너 및 관리 오버레이 완벽 제거 */
+    #streamlitViewerFooter, .viewerBadge, footer, [data-testid="stStatusWidget"], div[class^="stActionButton"] {
+        display: none !important;
+        visibility: hidden !important;
+        opacity: 0 !important;
+        height: 0 !important;
+    }
     </style>
 """, unsafe_allow_html=True)
 
