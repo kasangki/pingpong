@@ -6,7 +6,7 @@ from streamlit_cookies_controller import CookieController
 # 🔑 최상단 레이아웃 설정
 st.set_page_config(layout="wide")
 
-# 🎨 럭셔리 네온 다크 UI 디자인 시스템 매핑 (비주얼 고도화)
+# 🎨 럭셔리 네온 다크 UI 디자인 시스템 매핑 (비주얼 고도화 및 모바일 클라우드 패치)
 st.markdown("""
     <style>
     /* 1. 기본 브랜딩 배지 및 여백 제거 */
@@ -129,12 +129,31 @@ st.markdown("""
         padding: 0 !important;
     }
 
-    /* 🚀 [모바일 최종 패치] 휴대폰 접속 시 우측 하단에 나타나는 share.streamlit.io 배너 및 관리 오버레이 완벽 제거 */
-    #streamlitViewerFooter, .viewerBadge, footer, [data-testid="stStatusWidget"], div[class^="stActionButton"] {
+    /* 🚀 [모바일 클라우드 서버 전용 완벽 차단 패치] */
+    /* 클라우드 호스팅 서버가 모바일 화면 하단에 강제 주입하는 모든 iframe, 배너, 액션 버튼의 흔적을 원천 소멸시킵니다. */
+    iframe[title="Streamlit Cloud Footer"],
+    div[class*="StyledActionButton"],
+    div[class*="stActionButton"],
+    .viewerBadge,
+    #streamlitViewerFooter,
+    footer,
+    [data-testid="stStatusWidget"],
+    div[data-testid="stDecoration"] {
         display: none !important;
         visibility: hidden !important;
         opacity: 0 !important;
         height: 0 !important;
+        max-height: 0 !important;
+        margin: 0 !important;
+        padding: 0 !important;
+        pointer-events: none !important;
+    }
+
+    /* 모바일 브라우저에서 하단 툴바가 가리고 있던 빈 공백 영역(바닥 패딩)을 정상화합니다. */
+    .stApp {
+        bottom: 0 !important;
+        height: 100vh !important;
+        padding-bottom: 0px !important;
     }
     </style>
 """, unsafe_allow_html=True)
