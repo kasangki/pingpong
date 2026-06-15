@@ -103,7 +103,6 @@ def run_tab_manage(get_db_connection):
 
     st.markdown(f"📊 **선택된 대회:** `{selected_tour['title']}` (현재 선발된 인원: **{len(registered_player_ids)}명**)")
 
-    # 💡 [UX 고도화 패치] 대회 상태가 'finished'이면 명단 수정 및 선택 불가하도록 제어
     is_tournament_locked = (selected_tour['status'] == 'finished')
 
     if is_tournament_locked:
@@ -123,7 +122,6 @@ def run_tab_manage(get_db_connection):
             is_checked = m_id in registered_player_ids
 
             with cols[idx % 3]:
-                # 💡 [핵심 패치] disabled 옵션을 주어 이미 끝난 대회의 체크박스는 해제/선택을 원천 차단합니다.
                 chk = st.checkbox(
                     f"{m_name} ({m_grade}부) [ID:{m_user}]",
                     value=is_checked,
@@ -133,7 +131,6 @@ def run_tab_manage(get_db_connection):
                 if chk:
                     selected_member_ids.append(m_id)
 
-        # 💡 [핵심 패치] 이미 종료된 대회인 경우 폼 서브밋 버튼도 동작을 안 하도록 격리합니다.
         if not is_tournament_locked:
             if st.form_submit_button("💾 출전 명단 최종 저장 및 동기화", use_container_width=True, type="primary"):
                 try:
@@ -157,7 +154,7 @@ def run_tab_manage(get_db_connection):
             st.form_submit_button("🔒 마감된 대회는 변경할 수 없습니다", disabled=True, use_container_width=True)
 
     # ==========================================
-    # 💾 3 구역: 데이터 독립 및 안전 백업 센터 (한글 인코딩 완료)
+    # 💾 3 구역: 데이터 독립 및 안전 백업 센터 (오류 수정 완료)
     # ==========================================
     st.markdown("<br>", unsafe_allow_html=True)
     st.subheader("💾 Neon 클라우드 로컬 백업 센터")
@@ -197,6 +194,8 @@ def run_tab_manage(get_db_connection):
                 )
 
             with bc3:
+                # 💡 [오류 수정 핵심 포인트]
+                # 존재하지 않는 mr.match_status 컬럼을 제거하고, 대신 스코어 유무(SUM)로 경기 상태를 가상 연산 처리했습니다.
                 query_match_hd = """
                     SELECT 
                         t.title AS "대회명",
@@ -212,9 +211,8 @@ def run_tab_manage(get_db_connection):
                         m2.name AS "선수2 이름",
                         CONCAT(m2.grade, '부') AS "선수2 부수",
                         CASE 
-                            WHEN mr.match_status = 'finished' THEN '🏆 경기종료'
-                            WHEN mr.match_status = 'playing' THEN '🎮 진행중'
-                            ELSE '⚙️ 대기중'
+                            WHEN (mr.player1_score > 0 OR mr.player2_score > 0) THEN '🏆 경기종료'
+                            ELSE '🎮 대기/진행중'
                         END AS "경기상태",
                         mr.updated_at AS "최종입력시간"
                     FROM match_results mr
