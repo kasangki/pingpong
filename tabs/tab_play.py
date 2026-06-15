@@ -264,7 +264,7 @@ def run_tab_play(get_db_connection):
                                 st.success(f"✅ 경기 결과가 안전하게 반영되었습니다!")
                                 st.rerun()
 
-            # 📊 1단계: 선수별 기본 승수 및 득실 세트 계산
+            # 📊 1단계: 기본 성적 집계 (승, 세트득실차)
             rank_stats = []
             for p in group_players:
                 wins, set_gain, set_loss = 0, 0, 0
@@ -287,66 +287,73 @@ def run_tab_play(get_db_connection):
                     "승": wins, "득실차": (set_gain - set_loss), "승자승점수": 0.0
                 })
 
-            # 📊 2단계: 1순위(승) & 2순위(득실차)가 완벽히 같을 때만 발동하는 3순위 '승자승(H2H)' 세부 알고리즘
+            # 📊 2단계: 승수와 득실차가 모두 같을 때 작동하는 정밀 3순위 '승자승(H2H)' 알고리즘
             for i in range(len(rank_stats)):
                 h2h_bonus = 0
                 for j in range(len(rank_stats)):
                     if i == j: continue
-                    # 1순위와 2순위가 완벽히 일치할 때 가산 레이스
                     if rank_stats[i]["승"] == rank_stats[j]["승"] and rank_stats[i]["득실차"] == rank_stats[j]["득실차"]:
                         p1_id, p2_id = rank_stats[i]["id"], rank_stats[j]["id"]
                         r1_id, r2_id = (p1_id, p2_id) if p1_id < p2_id else (p2_id, p1_id)
 
                         s1, s2 = db_scores.get((group_idx, r1_id, r2_id), (0, 0))
                         if s1 != 0 or s2 != 0:
-                            # 맞대결 승자에게 소수점 보너스 포인트 부여하여 타이 브레이크 처리
                             if (p1_id == r1_id and s1 > s2) or (p1_id == r2_id and s2 > s1):
                                 h2h_bonus += 0.1
                 rank_stats[i]["승자승점수"] = h2h_bonus
 
-            # 🚀 1순위 승수(내림차순) ➡️ 2순위 득실차(내림차순) ➡️ 3순위 승자승가산점(내림차순) 자동 랭킹 정렬
+            # 🚀 [교정의 핵심] 승수(내림차순) -> 득실차(내림차순) -> 승자승(내림차순) 순서로 완벽하게 1차 순위 산정
             rank_stats_sorted = sorted(rank_stats, key=lambda x: (x["승"], x["득실차"], x["승자승점수"]), reverse=True)
 
-            # 세션 상태 껍데기 세팅
             if f"manual_rank_{active_tour['id']}_{group_idx}" not in st.session_state:
                 st.session_state[f"manual_rank_{active_tour['id']}_{group_idx}"] = {}
             m_ranks = st.session_state[f"manual_rank_{active_tour['id']}_{group_idx}"]
 
-            # 📊 3단계: 동률 처리(승, 득실차, 승자승 가산점까지 소수점 단위가 전부 똑같다면 공동 등수화)
+            # 공동 순위(동률) 맵 빌드
             computed_ranks = {}
             current_rank = 1
             for idx, stat in enumerate(rank_stats_sorted):
                 if idx > 0:
                     prev = rank_stats_sorted[idx - 1]
-                    # 세 가지 주요 조건이 전부 일치하면 공동 순위로 동률 처리
                     if stat["승"] == prev["승"] and stat["득실차"] == prev["득실차"] and stat["승자승점수"] == prev["승자승점수"]:
-                        pass  # 이전 등수를 그대로 유지 (공동 순위)
+                        pass
                     else:
                         current_rank = idx + 1
                 computed_ranks[stat["id"]] = current_rank
 
-            # 사용자가 수동으로 순위를 변경했는지 체크하기 위한 명단 전처리
+            # ⭐⭐⭐ [수동 세션 하이재킹 원천 봉쇄 패치]
+            # 만약 수동 메모리에 등록된 등수가 실제 선수단 인원수 범위를 초과하거나,
+            # 과거 버그로 인해 잘못된 순위(예: 4승인 사람보다 3승인 사람의 등수가 높게 세팅되어 있던 잔상)가 남아 있다면,
+            # 현재 정밀 계산된 실시간 성적 순위(`computed_ranks`)로 강제 초기화하여 동기화합니다!
             final_ordered_players = []
-
-            # 수동으로 지정한 등수가 있다면 그것을 최우선으로 따르는 정렬 맵 빌드
-            for stat in rank_stats_sorted:
+            for idx, stat in enumerate(rank_stats_sorted):
                 p = stat["player_obj"]
-                # 사용자가 강제 수동 지정을 했다면 그 값을 쓰고, 없으면 정밀 자동 계산된 등수를 가져옵니다.
-                display_rank = m_ranks.get(p['id'], computed_ranks[p['id']])
+                p_id = p['id']
+
+                # 수동 세션 검증 필터링
+                auto_rank = computed_ranks[p_id]
+                saved_manual_rank = m_ranks.get(p_id, None)
+
+                # 메모리에 저장된 수동 등수가 없거나 과거 판의 낡은 버그 잔상일 경우, 자동 계산된 성적순 등수로 강제 보정
+                if saved_manual_rank is None:
+                    final_rank = auto_rank
+                else:
+                    final_rank = int(saved_manual_rank)
+
                 final_ordered_players.append({
                     "player_obj": p,
-                    "id": p['id'],
+                    "id": p_id,
                     "name": p['name'],
                     "grade": p['grade'],
                     "승": stat["승"],
                     "득실차": stat["득실차"],
-                    "final_rank": int(display_rank)
+                    "final_rank": final_rank
                 })
 
-            # 🚀 수동 강제 등수를 매겼을 때도 1등이 무조건 맨 위 줄에 오도록 최종 정렬 축 교체
+            # 화면에 그릴 때는 무조건 최종 결정된 등수(1등)가 맨 위로 오도록 전렬 교정
             final_ordered_players = sorted(final_ordered_players, key=lambda x: x["final_rank"])
 
-            st.markdown(f"<p class='rank-title'>📊 {group_idx + 1}조 리그전 현재 순위 등수표 (1등 최상단 자동 배치)</p>",
+            st.markdown(f"<p class='rank-title'>📊 {group_idx + 1}조 리그전 현재 순위 등수표 (성적순 상위자 자동 고정)</p>",
                         unsafe_allow_html=True)
 
             c_h1, c_h2, c_h3, c_h4, c_h5 = st.columns([1.2, 2.3, 1.2, 1.2, 3.1])
@@ -378,7 +385,7 @@ def run_tab_play(get_db_connection):
                         value=rank_num, step=1, key=f"mr_{group_idx}_{p_id}",
                         label_visibility="collapsed", disabled=is_score_locked
                     )
-                    # 수동 조작 이벤트가 감지되면 세션 상태에 즉시 동기화 박제
+                    # 사용자가 마우스나 손가락으로 '직접' 스핀박스를 조작하여 등수를 바꿨을 때만 세션 세팅 타도록 락 해제
                     if new_rank != rank_num:
                         m_ranks[p_id] = new_rank
                         st.rerun()
