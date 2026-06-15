@@ -302,14 +302,10 @@ def run_tab_play(get_db_connection):
                                 h2h_bonus += 0.1
                 rank_stats[i]["승자승점수"] = h2h_bonus
 
-            # 🚀 [교정의 핵심] 승수(내림차순) -> 득실차(내림차순) -> 승자승(내림차순) 순서로 완벽하게 1차 순위 산정
+            # 🚀 [교정] 자동 정렬 축 고정 (승수 내림차순 -> 득실차 내림차순 -> 승자승 가산점 내림차순)
             rank_stats_sorted = sorted(rank_stats, key=lambda x: (x["승"], x["득실차"], x["승자승점수"]), reverse=True)
 
-            if f"manual_rank_{active_tour['id']}_{group_idx}" not in st.session_state:
-                st.session_state[f"manual_rank_{active_tour['id']}_{group_idx}"] = {}
-            m_ranks = st.session_state[f"manual_rank_{active_tour['id']}_{group_idx}"]
-
-            # 공동 순위(동률) 맵 빌드
+            # 공동 순위(동률) 처리 맵 빌드
             computed_ranks = {}
             current_rank = 1
             for idx, stat in enumerate(rank_stats_sorted):
@@ -321,55 +317,46 @@ def run_tab_play(get_db_connection):
                         current_rank = idx + 1
                 computed_ranks[stat["id"]] = current_rank
 
-            # ⭐⭐⭐ [수동 세션 하이재킹 원천 봉쇄 패치]
-            # 만약 수동 메모리에 등록된 등수가 실제 선수단 인원수 범위를 초과하거나,
-            # 과거 버그로 인해 잘못된 순위(예: 4승인 사람보다 3승인 사람의 등수가 높게 세팅되어 있던 잔상)가 남아 있다면,
-            # 현재 정밀 계산된 실시간 성적 순위(`computed_ranks`)로 강제 초기화하여 동기화합니다!
-            final_ordered_players = []
-            for idx, stat in enumerate(rank_stats_sorted):
-                p = stat["player_obj"]
-                p_id = p['id']
+            # 수동 등수 매핑 세션 핸들러
+            manual_key = f"m_rank_map_{active_tour['id']}_{group_idx}"
+            if manual_key not in st.session_state:
+                st.session_state[manual_key] = {}
+            m_ranks = st.session_state[manual_key]
 
-                # 수동 세션 검증 필터링
-                auto_rank = computed_ranks[p_id]
-                saved_manual_rank = m_ranks.get(p_id, None)
+            # 🚀 렌더링용 마스터 리스트 조립 (자동 계산 결과 적용)
+            render_list = []
+            for stat in rank_stats_sorted:
+                p_id = stat["id"]
+                # 관리자가 임의 지정한 변경 등수가 있다면 그것을 쓰고, 없다면 청정 자동계산 등수를 최종 채택합니다.
+                final_rank = m_ranks.get(p_id, computed_ranks[p_id])
 
-                # 메모리에 저장된 수동 등수가 없거나 과거 판의 낡은 버그 잔상일 경우, 자동 계산된 성적순 등수로 강제 보정
-                if saved_manual_rank is None:
-                    final_rank = auto_rank
-                else:
-                    final_rank = int(saved_manual_rank)
-
-                final_ordered_players.append({
-                    "player_obj": p,
+                render_list.append({
+                    "player_obj": stat["player_obj"],
                     "id": p_id,
-                    "name": p['name'],
-                    "grade": p['grade'],
+                    "name": stat["name"],
+                    "grade": stat["grade"],
                     "승": stat["승"],
                     "득실차": stat["득실차"],
-                    "final_rank": final_rank
+                    "rank": int(final_rank)
                 })
 
-            # 화면에 그릴 때는 무조건 최종 결정된 등수(1등)가 맨 위로 오도록 전렬 교정
-            final_ordered_players = sorted(final_ordered_players, key=lambda x: x["final_rank"])
+            # 화면에 출력될 최종 등수 정렬 (1등이 무조건 맨 위 줄로 꽂힙니다)
+            render_list = sorted(render_list, key=lambda x: x["rank"])
 
-            st.markdown(f"<p class='rank-title'>📊 {group_idx + 1}조 리그전 현재 순위 등수표 (성적순 상위자 자동 고정)</p>",
+            st.markdown(f"<p class='rank-title'>📊 {group_idx + 1}조 리그전 실시간 순위 등수표 (성적순 자동 배치)</p>",
                         unsafe_allow_html=True)
 
-            c_h1, c_h2, c_h3, c_h4, c_h5 = st.columns([1.2, 2.3, 1.2, 1.2, 3.1])
+            c_h1, c_h2, c_h3, c_h4 = st.columns([1.5, 3.0, 1.5, 1.5])
             c_h1.markdown("**등수**")
             c_h2.markdown("**선수 정보**")
             c_h3.markdown("**승률(승)**")
             c_h4.markdown("**세트득실**")
-            c_h5.markdown("**순위 미세 조정 (강제 등수 부여)**")
 
-            for item in final_ordered_players:
-                p_id = item["id"]
-                rank_num = item["final_rank"]
+            for item in render_list:
+                rank_num = item["rank"]
+                c_b1, c_b2, c_b3, c_b4 = st.columns([1.5, 3.0, 1.5, 1.5])
 
-                c_b1, c_b2, c_b3, c_b4, c_b5 = st.columns([1.2, 2.3, 1.2, 1.2, 3.1])
                 medal = f"🥇 {rank_num}위" if rank_num == 1 else f"🥈 {rank_num}위" if rank_num == 2 else f"🥉 {rank_num}위" if rank_num == 3 else f"🏅 {rank_num}위"
-
                 c_b1.markdown(f"**{medal}**")
                 c_b2.markdown(f"<span class='text-main-bold'>{item['name']}</span> ({item['grade']}부)",
                               unsafe_allow_html=True)
@@ -379,20 +366,31 @@ def run_tab_play(get_db_connection):
                 diff_text = f"+{diff_val}" if diff_val > 0 else f"{diff_val}"
                 c_b4.markdown(f"**{diff_text}**")
 
-                with c_b5:
-                    new_rank = st.number_input(
-                        f"등수 변경 {item['name']}", min_value=1, max_value=len(group_players),
-                        value=rank_num, step=1, key=f"mr_{group_idx}_{p_id}",
-                        label_visibility="collapsed", disabled=is_score_locked
+                if item['id'] in all_league_stats:
+                    all_league_stats[item['id']]["승"] = item['승']
+                    all_league_stats[item['id']]["득실차"] = item['득실차']
+
+            # ⭐⭐⭐ [UI 혁신 패치] 화면 번쩍임 및 등수 하이재킹 유발 원인이던 입력창을 순위표에서 완전 격리 제거!
+            # 동률 조정 및 강제 순위 제어가 필요할 때만 하단 패널에서 독립적으로 작동하도록 우아하게 배치했습니다.
+            with st.expander(f"🛠️ {group_idx + 1}조 순위 강제 미세 조정 및 동률 파괴 제어판"):
+                st.caption("💡 승/득실/승자승까지 똑같은 동률이거나, 특정 선수의 등수를 임의로 조정해야 할 때 아래에서 조절하세요.")
+                for item in render_list:
+                    p_id = item["id"]
+                    current_saved = m_ranks.get(p_id, computed_ranks[p_id])
+
+                    new_val = st.number_input(
+                        f"🔺 {item['name']} ({item['grade']}부) 강제 등수 설정",
+                        min_value=1, max_value=len(group_players), value=int(current_saved), step=1,
+                        key=f"adjust_{group_idx}_{p_id}"
                     )
-                    # 사용자가 마우스나 손가락으로 '직접' 스핀박스를 조작하여 등수를 바꿨을 때만 세션 세팅 타도록 락 해제
-                    if new_rank != rank_num:
-                        m_ranks[p_id] = new_rank
+                    if new_val != current_saved:
+                        m_ranks[p_id] = new_val
                         st.rerun()
 
-                if p_id in all_league_stats:
-                    all_league_stats[p_id]["승"] = item['승']
-                    all_league_stats[p_id]["득실차"] = item['득실차']
+                if st.button("🔄 이 조의 순위 미세조정 내역 초기화 (순수 자동성적순 롤백)", key=f"reset_btn_{group_idx}",
+                             use_container_width=True):
+                    st.session_state[manual_key] = {}
+                    st.rerun()
 
             total_matches_count = len(round_matches)
             recorded_matches_count = sum(1 for (p1, p2) in round_matches if (
@@ -401,10 +399,10 @@ def run_tab_play(get_db_connection):
 
             if total_matches_count == recorded_matches_count:
                 st.markdown(f"##### 🏁 [{group_idx + 1}조 리그전 확정 최종 등수]")
-                result_strings = [f"**{item['final_rank']}위**: {item['name']}" for item in final_ordered_players]
+                result_strings = [f"**{item['rank']}위**: {item['name']}" for item in render_list]
                 st.info(" ➡️ ".join(result_strings))
 
-            return [item["player_obj"] for item in final_ordered_players]
+            return [item["player_obj"] for item in render_list]
 
         for g_idx, g_players in enumerate(groups):
             if g_players:
