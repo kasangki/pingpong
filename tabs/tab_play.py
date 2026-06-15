@@ -81,7 +81,9 @@ def run_tab_play(get_db_connection):
         x: f"{x['title']} [{'🏆 완료됨' if x['status'] == 'finished' else '🎮 진행중'}]")
     current_tour_status = active_tour['status']
 
-    if current_tour_status != 'finished':
+    # 💡 [마감 락 플래그] 대회가 종료되면 실시간 자동새로고침을 멈춥니다.
+    is_tournament_finished = (current_tour_status == 'finished')
+    if not is_tournament_finished:
         st_autorefresh(interval=60000, key="play_tab_refresh")
 
     try:
@@ -119,8 +121,6 @@ def run_tab_play(get_db_connection):
             db_scores[(g_idx, p2_id, p1_id)] = (p2_sc, p1_sc)
 
     is_game_started = len(db_scores) > 0
-    is_tournament_finished = (current_tour_status == 'finished')
-
     is_score_locked = True if is_tournament_finished else False
     is_ui_disabled = is_game_started or is_tournament_finished
 
@@ -129,7 +129,7 @@ def run_tab_play(get_db_connection):
     else:
         st.info("📢 전광판 모드 활성화: 60초 주기로 다른 태블릿의 경기 점수가 화면에 실시간 자동 동기화됩니다.")
 
-    # 1. 최상단 새로고침
+    # 1. 최상단 즉시 새로고침
     c_status, c_refresh = st.columns([5.5, 1.5])
     with c_status:
         st.caption("💡 다른 태블릿이 입력한 점수를 즉시 땡겨오려면 우측 버튼을 누르세요.")
@@ -246,7 +246,7 @@ def run_tab_play(get_db_connection):
                             if sc1 == 3 and sc2 == 3:
                                 st.error("⚠️ 3:3 동점은 입력할 수 없습니다.")
                             elif sc1 != 3 and sc2 != 3:
-                                _st.error("⚠️ 세트 종료 기준 미달 (3점 선취 필요)")
+                                st.error("⚠️ 세트 종료 기준 미달 (3점 선취 필요)")
                             else:
                                 f_p1_sc = sc1 if p1['id'] == db_p1_id else sc2
                                 f_p2_sc = sc2 if p1['id'] == db_p1_id else sc1
@@ -366,22 +366,27 @@ def run_tab_play(get_db_connection):
                     all_league_stats[item['id']]["승"] = item['승']
                     all_league_stats[item['id']]["득실차"] = item['득실차']
 
+            # 💡 [핵심 패치] 대회가 종료(마감) 상태이면 수동 미세 조정 패널 자체를 잠금(Disabled) 처리합니다.
             with st.expander(f"🛠️ {group_idx + 1}조 순위 강제 미세 조정 및 동률 파괴 제어판"):
+                if is_score_locked:
+                    st.caption("🔒 대회가 마감되어 순위 강제 조정 기능이 잠겼습니다.")
                 for item in render_list:
                     p_id = item["id"]
                     current_saved = m_ranks.get(p_id, computed_ranks[p_id])
                     new_val = st.number_input(
                         f"🔺 {item['name']} 강제 등수 설정",
                         min_value=1, max_value=len(group_players), value=int(current_saved), step=1,
-                        key=f"adjust_{group_idx}_{p_id}"
+                        key=f"adjust_{group_idx}_{p_id}",
+                        disabled=is_score_locked  # 락 반영
                     )
-                    if new_val != current_saved:
+                    if not is_score_locked and new_val != current_saved:
                         m_ranks[p_id] = new_val
                         st.rerun()
 
-                if st.button("🔄 이 조의 순위 미세조정 내역 초기화", key=f"reset_btn_{group_idx}", use_container_width=True):
-                    st.session_state[manual_key] = {}
-                    st.rerun()
+                if not is_score_locked:
+                    if st.button("🔄 이 조의 순위 미세조정 내역 초기화", key=f"reset_btn_{group_idx}", use_container_width=True):
+                        st.session_state[manual_key] = {}
+                        st.rerun()
 
             total_matches_count = len(round_matches)
             recorded_matches_count = sum(1 for (p1, p2) in round_matches if (
