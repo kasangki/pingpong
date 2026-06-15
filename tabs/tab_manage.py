@@ -3,7 +3,13 @@ import pandas as pd
 
 
 def run_tab_manage(get_db_connection):
-    st.header("2.🏆 신규 대회 생성 및 출전 명단 선발")
+    # 🌟 [UI 레이아웃 패치] 타이틀 우측에 즉시 동기화 새로고침 배치 (타 탭과의 디자인 일관성)
+    c_title, c_ref = st.columns([5.5, 1.5])
+    with c_title:
+        st.header("2.🏆 신규 대회 생성 및 출전 명단 선발")
+    with c_ref:
+        if st.button("🔄 관리자 대시보드 갱신", use_container_width=True, type="secondary", key="manage_refresh_btn"):
+            st.rerun()
 
     club_id = st.session_state.club_id
     user_role = st.session_state.user_role
@@ -19,7 +25,7 @@ def run_tab_manage(get_db_connection):
     with st.form("create_tournament_form", clear_on_submit=True):
         t_title = st.text_input("🏆 대회 명칭 입력", placeholder="예: 2026년 6월 용호메이트 정기 랭킹전")
 
-        # 📅 [신규 추가] 대회 날짜 선택 달력 위젯
+        # 📅 대회 날짜 선택 달력 위젯
         t_date = st.date_input("📅 대회 개최 날짜 선택", value=pd.Timestamp.now().date())
 
         if st.form_submit_button("🚀 신규 대회 개설하기", use_container_width=True):
@@ -27,7 +33,6 @@ def run_tab_manage(get_db_connection):
                 try:
                     conn = get_db_connection()
                     cur = conn.cursor()
-                    # 💡 새로 추가한 tournament_date 컬럼에 선택한 날짜를 삽입합니다.
                     cur.execute("""
                         INSERT INTO tournaments (club_id, title, status, tournament_date) 
                         VALUES (%s, %s, 'setup', %s)
@@ -35,6 +40,8 @@ def run_tab_manage(get_db_connection):
                     conn.commit()
                     cur.close()
                     conn.close()
+                    # 💡 [UX 패치] 화면 번쩍임 전에 알림 토스트를 띄워 피드백 각인
+                    st.toast(f"🎉 [{t_title}] 대회가 생성되었습니다.")
                     st.success(f"🎉 [{t_title}] 대회가 성공적으로 개설되었습니다! 아래에서 참가 선수를 선발해 주세요.")
                     st.rerun()
                 except Exception as e:
@@ -51,7 +58,6 @@ def run_tab_manage(get_db_connection):
 
     try:
         conn = get_db_connection()
-        # 💡 [UX 개선] 대회 목록을 보여줄 때 언제 열린 대회인지 날짜(tournament_date)도 함께 조회합니다.
         query_t = "SELECT id, title, status, tournament_date FROM tournaments WHERE club_id = %s AND deleted_at IS NULL ORDER BY id DESC"
         df_tournaments = pd.read_sql(query_t, conn, params=(club_id,))
         conn.close()
@@ -64,7 +70,7 @@ def run_tab_manage(get_db_connection):
         return
 
     tour_options = df_tournaments.to_dict('records')
-    # 💡 [UX 개선] 셀렉트박스 목록에 (2026-06-11) 같은 형식으로 개최 날짜가 직관적으로 표시되도록 포맷팅
+
     selected_tour = st.selectbox(
         "선수 명단을 구성할 대회를 고르세요",
         tour_options,
@@ -115,6 +121,7 @@ def run_tab_manage(get_db_connection):
             is_checked = m_id in registered_player_ids
 
             with cols[idx % 3]:
+                # 부수 정보와 ID 가독성을 위한 레이블 밸런스 유지
                 chk = st.checkbox(f"{m_name} ({m_grade}부) [ID:{m_user}]", value=is_checked,
                                   key=f"chk_{selected_tour['id']}_{m_id}")
                 if chk:
@@ -137,7 +144,8 @@ def run_tab_manage(get_db_connection):
                 conn.commit()
                 cur.close()
                 conn.close()
-                st.success(f"✅ 명단 저장 완료! 총 {len(selected_member_ids)}명의 출전 선수가 확정되었습니다.")
+                # 💡 [UX 패치] 명단이 세이브되었음을 토스트 메시지로 확신 부여
+                st.toast(f"✅ {len(selected_member_ids)}명의 출전 명단이 동기화되었습니다.")
                 st.rerun()
             except Exception as e:
                 st.error(f"❌ 명단 저장 중 오류가 발생했습니다: {e}")
