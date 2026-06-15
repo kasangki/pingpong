@@ -101,7 +101,7 @@ def run_tab_play(get_db_connection):
         st.info("출전 선수가 부족합니다. (최소 2명 필요)")
         return
 
-    # 🚀 기준 정렬 키 적재 파트 (대소 관계 절대 격리)
+    # ID 대소 비교 기반 완정 정합성 딕셔너리 빌드
     db_scores = {}
     for _, row in df_saved_matches.iterrows():
         g_idx = int(row['group_idx'])
@@ -197,8 +197,6 @@ def run_tab_play(get_db_connection):
                 saved_tuple = db_scores.get(score_key, (0, 0))
                 s1_saved, s2_saved = saved_tuple
 
-                # ⭐ [버그 해결 핵심 핵심부]
-                # 대진 셔플 알고리즘이 뱉은 p1/p2 배치 순서에 종속되지 않고, DB 저장 순서와 정확하게 매칭 연산 스왑
                 if p1['id'] == db_p1_id:
                     v1, v2 = s1_saved, s2_saved
                 else:
@@ -206,50 +204,54 @@ def run_tab_play(get_db_connection):
 
                 is_match_recorded = (v1 == 3 or v2 == 3)
 
-                c_num, c_p1, c_s1, c_vs, c_s2, c_p2, c_btn = st.columns([0.8, 2.3, 0.9, 0.3, 0.9, 2.3, 1.5])
-                with c_num:
-                    st.markdown(f"<div class='match-row-num'>{idx + 1}경기</div>", unsafe_allow_html=True)
-                with c_p1:
-                    st.markdown(f"<div class='player-box-p1'>{p1['name']}</div>", unsafe_allow_html=True)
-                with c_s1:
-                    sc1 = st.number_input("🔹", min_value=0, max_value=3, value=v1, step=1, key=f"s1_{group_idx}_{idx}",
-                                          label_visibility="collapsed", disabled=is_score_locked)
-                with c_vs:
-                    st.markdown("<div class='vs-divider'>:</div>", unsafe_allow_html=True)
-                with c_s2:
-                    sc2 = st.number_input("🔸", min_value=0, max_value=3, value=v2, step=1, key=f"s2_{group_idx}_{idx}",
-                                          label_visibility="collapsed", disabled=is_score_locked)
-                with c_p2:
-                    st.markdown(f"<div class='player-box-p2'>{p2['name']}</div>", unsafe_allow_html=True)
+                # 🚀 [버그 원천 해결 패치]
+                # 각 행마다 독립적인 폼 패키징을 선언하여, 내가 누르지 않은 다른 0:0 입력창의 잔상 데이터가 DB로 흘러 들어가지 않도록 완벽 격리!
+                with st.container():
+                    c_num, c_p1, c_s1, c_vs, c_s2, c_p2, c_btn = st.columns([0.8, 2.3, 0.9, 0.3, 0.9, 2.3, 1.5])
+                    with c_num:
+                        st.markdown(f"<div class='match-row-num'>{idx + 1}경기</div>", unsafe_allow_html=True)
+                    with c_p1:
+                        st.markdown(f"<div class='player-box-p1'>{p1['name']}</div>", unsafe_allow_html=True)
+                    with c_s1:
+                        sc1 = st.number_input("🔹", min_value=0, max_value=3, value=v1, step=1,
+                                              key=f"s1_{group_idx}_{idx}",
+                                              label_visibility="collapsed", disabled=is_score_locked)
+                    with c_vs:
+                        st.markdown("<div class='vs-divider'>:</div>", unsafe_allow_html=True)
+                    with c_s2:
+                        sc2 = st.number_input("🔸", min_value=0, max_value=3, value=v2, step=1,
+                                              key=f"s2_{group_idx}_{idx}",
+                                              label_visibility="collapsed", disabled=is_score_locked)
+                    with c_p2:
+                        st.markdown(f"<div class='player-box-p2'>{p2['name']}</div>", unsafe_allow_html=True)
 
-                with c_btn:
-                    btn_label = "🟢 저장완료" if is_match_recorded else "💾 결과저장"
-                    btn_type = "secondary" if is_match_recorded else "primary"
+                    with c_btn:
+                        btn_label = "🟢 저장완료" if is_match_recorded else "💾 결과저장"
+                        btn_type = "secondary" if is_match_recorded else "primary"
 
-                    if st.button(btn_label, key=f"b_{group_idx}_{idx}", use_container_width=True, type=btn_type,
-                                 disabled=is_score_locked):
-                        if sc1 == 3 and sc2 == 3:
-                            st.error("⚠️ 3:3 동점은 입력할 수 없습니다.")
-                        elif sc1 != 3 and sc2 != 3:
-                            st.error("⚠️ 세트 종료 기준 미달 (3점 선취 필요)")
-                        else:
-                            # 저장할 때도 현재 화면 순서에 맞게 변수를 정렬하여 입력 처리
-                            f_p1_sc = sc1 if p1['id'] == db_p1_id else sc2
-                            f_p2_sc = sc2 if p1['id'] == db_p1_id else sc1
+                        if st.button(btn_label, key=f"b_{group_idx}_{idx}", use_container_width=True, type=btn_type,
+                                     disabled=is_score_locked):
+                            if sc1 == 3 and sc2 == 3:
+                                st.error("⚠️ 3:3 동점은 입력할 수 없습니다.")
+                            elif sc1 != 3 and sc2 != 3:
+                                st.error("⚠️ 세트 종료 기준 미달 (3점 선취 필요)")
+                            else:
+                                f_p1_sc = sc1 if p1['id'] == db_p1_id else sc2
+                                f_p2_sc = sc2 if p1['id'] == db_p1_id else sc1
 
-                            conn = get_db_connection()
-                            cur = conn.cursor()
-                            cur.execute("""
-                                INSERT INTO match_results (tournament_id, group_idx, match_order, player1_id, player2_id, player1_score, player2_score) 
-                                VALUES (%s,%s,%s,%s,%s,%s,%s) 
-                                ON CONFLICT (tournament_id, group_idx, player1_id, player2_id) 
-                                DO UPDATE SET player1_score = EXCLUDED.player1_score, player2_score = EXCLUDED.player2_score
-                            """, (active_tour['id'], group_idx, idx + 1, db_p1_id, db_p2_id, f_p1_sc, f_p2_sc))
-                            conn.commit()
-                            cur.close()
-                            conn.close()
-                            st.success(f"✅ {idx + 1}경기 결과가 성공적으로 보존되었습니다!")
-                            st.rerun()
+                                conn = get_db_connection()
+                                cur = conn.cursor()
+                                cur.execute("""
+                                    INSERT INTO match_results (tournament_id, group_idx, match_order, player1_id, player2_id, player1_score, player2_score) 
+                                    VALUES (%s,%s,%s,%s,%s,%s,%s) 
+                                    ON CONFLICT (tournament_id, group_idx, player1_id, player2_id) 
+                                    DO UPDATE SET player1_score = EXCLUDED.player1_score, player2_score = EXCLUDED.player2_score
+                                """, (active_tour['id'], group_idx, idx + 1, db_p1_id, db_p2_id, f_p1_sc, f_p2_sc))
+                                conn.commit()
+                                cur.close()
+                                conn.close()
+                                st.success(f"✅ 경기 결과가 안전하게 반영되었습니다!")
+                                st.rerun()
 
             rank_stats = []
             for p in group_players:
@@ -307,7 +309,7 @@ def run_tab_play(get_db_connection):
                 default_rank = m_ranks.get(p['id'], idx + 1)
 
                 c_b1, c_b2, c_b3, c_b4, c_b5 = st.columns([1.2, 2.3, 1.2, 1.2, 3.1])
-                medal = f"🥇 {default_rank}位" if default_rank == 1 else f"🥈 {default_rank}位" if default_rank == 2 else f"🥉 {default_rank}位" if default_rank == 3 else f"🏅 {default_rank}位"
+                medal = f"🥇 {default_rank}위" if default_rank == 1 else f"🥈 {default_rank}위" if default_rank == 2 else f"🥉 {default_rank}위" if default_rank == 3 else f"🏅 {default_rank}위"
                 c_b1.markdown(f"**{medal}**")
                 c_b2.markdown(f"<span class='text-main-bold'>{stat['name']}</span> ({stat['grade']}부)",
                               unsafe_allow_html=True)
@@ -426,7 +428,6 @@ def run_tab_play(get_db_connection):
 
                 s1_t_saved, s2_t_saved = db_scores.get(score_key, (0, 0))
 
-                # ⭐ [토너먼트 순위 동기화 스왑 패치] 리그전과 동일하게 ID 순서에 따른 스왑 정밀 조작
                 if p1['id'] == db_p1_id:
                     v1, v2 = s1_t_saved, s2_t_saved
                 else:
@@ -455,59 +456,60 @@ def run_tab_play(get_db_connection):
                 if not is_recorded:
                     round_all_clear = False
 
-                c_m, c_p1, c_s1, c_vs, c_s2, c_p2, c_save = st.columns([1.0, 2.3, 1.1, 0.4, 1.1, 2.3, 1.5])
-                with c_m:
-                    st.markdown(
-                        f"<div style='margin-top:12px; font-weight:bold; color:#60A5FA; font-size:16px;'>매치 {idx + 1}</div>",
-                        unsafe_allow_html=True)
-                with c_p1:
-                    st.markdown(
-                        f"<div style='background-color:#064E3B; padding:10px; text-align:center; border-radius:8px; font-size:18px; color:#A7F3D0; border:1px solid #059669;'><b>{p1['name']}</b> <span style='font-size:13px; color:#94A3B8;'>({p1['grade']}부)</span></div>",
-                        unsafe_allow_html=True)
-                with c_s1:
-                    sc1 = st.number_input("🔹", min_value=0, max_value=3, value=v1, step=1,
-                                          key=f"t1_{round_level}_{idx}", label_visibility="collapsed",
-                                          disabled=is_score_locked)
-                with c_vs:
-                    st.markdown(
-                        "<div style='text-align:center; padding-top:8px; font-weight:bold; font-size:18px;'>:</div>",
-                        unsafe_allow_html=True)
-                with c_s2:
-                    sc2 = st.number_input("🔸", min_value=0, max_value=3, value=v2, step=1,
-                                          key=f"t2_{round_level}_{idx}", label_visibility="collapsed",
-                                          disabled=is_score_locked)
-                with c_p2:
-                    st.markdown(
-                        f"<div style='background-color:#78350F; padding:10px; text-align:center; border-radius:8px; font-size:18px; color:#FDE68A; border:1px solid #D97706;'><b>{p2['name']}</b> <span style='font-size:13px; color:#94A3B8;'>({p2['grade']}부)</span></div>",
-                        unsafe_allow_html=True)
+                with st.container():
+                    c_m, c_p1, c_s1, c_vs, c_s2, c_p2, c_save = st.columns([1.0, 2.3, 1.1, 0.4, 1.1, 2.3, 1.5])
+                    with c_m:
+                        st.markdown(
+                            f"<div style='margin-top:12px; font-weight:bold; color:#60A5FA; font-size:16px;'>매치 {idx + 1}</div>",
+                            unsafe_allow_html=True)
+                    with c_p1:
+                        st.markdown(
+                            f"<div style='background-color:#064E3B; padding:10px; text-align:center; border-radius:8px; font-size:18px; color:#A7F3D0; border:1px solid #059669;'><b>{p1['name']}</b> <span style='font-size:13px; color:#94A3B8;'>({p1['grade']}부)</span></div>",
+                            unsafe_allow_html=True)
+                    with c_s1:
+                        sc1 = st.number_input("🔹", min_value=0, max_value=3, value=v1, step=1,
+                                              key=f"t1_{round_level}_{idx}", label_visibility="collapsed",
+                                              disabled=is_score_locked)
+                    with c_vs:
+                        st.markdown(
+                            "<div style='text-align:center; padding-top:8px; font-weight:bold; font-size:18px;'>:</div>",
+                            unsafe_allow_html=True)
+                    with c_s2:
+                        sc2 = st.number_input("🔸", min_value=0, max_value=3, value=v2, step=1,
+                                              key=f"t2_{round_level}_{idx}", label_visibility="collapsed",
+                                              disabled=is_score_locked)
+                    with c_p2:
+                        st.markdown(
+                            f"<div style='background-color:#78350F; padding:10px; text-align:center; border-radius:8px; font-size:18px; color:#FDE68A; border:1px solid #D97706;'><b>{p2['name']}</b> <span style='font-size:13px; color:#94A3B8;'>({p2['grade']}부)</span></div>",
+                            unsafe_allow_html=True)
 
-                with c_save:
-                    t_btn_label = "🟢 저장완료" if is_recorded else "💾 결과기록"
-                    t_btn_type = "secondary" if is_recorded else "primary"
+                    with c_save:
+                        t_btn_label = "🟢 저장완료" if is_recorded else "💾 결과기록"
+                        t_btn_type = "secondary" if is_recorded else "primary"
 
-                    if st.button(t_btn_label, key=f"tsave_{round_level}_{idx}", use_container_width=True,
-                                 type=t_btn_type, disabled=is_score_locked):
-                        if sc1 == 3 and sc2 == 3:
-                            st.error("⚠️ 3:3 동점은 저장할 수 없습니다.")
-                        elif sc1 != 3 and sc2 != 3:
-                            st.error("⚠️ 한 명은 반드시 3점승이어야 합니다.")
-                        else:
-                            f_t_p1 = sc1 if p1['id'] == db_p1_id else sc2
-                            f_t_p2 = sc2 if p1['id'] == db_p1_id else sc1
+                        if st.button(t_btn_label, key=f"tsave_{round_level}_{idx}", use_container_width=True,
+                                     type=t_btn_type, disabled=is_score_locked):
+                            if sc1 == 3 and sc2 == 3:
+                                st.error("⚠️ 3:3 동점은 저장할 수 없습니다.")
+                            elif sc1 != 3 and sc2 != 3:
+                                st.error("⚠️ 한 명은 반드시 3점승이어야 합니다.")
+                            else:
+                                f_t_p1 = sc1 if p1['id'] == db_p1_id else sc2
+                                f_t_p2 = sc2 if p1['id'] == db_p1_id else sc1
 
-                            conn = get_db_connection()
-                            cur = conn.cursor()
-                            cur.execute("""
-                                INSERT INTO match_results (tournament_id, group_idx, match_order, player1_id, player2_id, player1_score, player2_score) 
-                                VALUES (%s,%s,%s,%s,%s,%s,%s) 
-                                ON CONFLICT (tournament_id, group_idx, player1_id, player2_id) 
-                                DO UPDATE SET player1_score = EXCLUDED.player1_score, player2_score = EXCLUDED.player2_score
-                            """, (active_tour['id'], g_code, idx + 1, db_p1_id, db_p2_id, f_t_p1, f_t_p2))
-                            conn.commit()
-                            cur.close()
-                            conn.close()
-                            st.success(f"🎉 본선 매치 결과 저장 성공!")
-                            st.rerun()
+                                conn = get_db_connection()
+                                cur = conn.cursor()
+                                cur.execute("""
+                                    INSERT INTO match_results (tournament_id, group_idx, match_order, player1_id, player2_id, player1_score, player2_score) 
+                                    VALUES (%s,%s,%s,%s,%s,%s,%s) 
+                                    ON CONFLICT (tournament_id, group_idx, player1_id, player2_id) 
+                                    DO UPDATE SET player1_score = EXCLUDED.player1_score, player2_score = EXCLUDED.player2_score
+                                """, (active_tour['id'], g_code, idx + 1, db_p1_id, db_p2_id, f_t_p1, f_t_p2))
+                                conn.commit()
+                                cur.close()
+                                conn.close()
+                                st.success(f"🎉 본선 매치 결과 저장 성공!")
+                                st.rerun()
 
             if p_count == 2 and round_all_clear and any_valid_match:
                 if len(next_round_players) > 0:
