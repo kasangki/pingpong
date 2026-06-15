@@ -62,11 +62,9 @@ def run_tab_play(get_db_connection):
     st.markdown(get_style(), unsafe_allow_html=True)
     st.header("3. 실시간 경기 진행 및 결과 기록")
 
-    # ⏱️ 👑 [주기 고도화 패치] 60초(60000ms) 주기로 백그라운드 자동 갱신 트리거 가동
-    st_autorefresh(interval=60000, key="play_tab_refresh")
-
     club_id = st.session_state.club_id
 
+    # 1. 먼저 가장 최신의 대회 상태를 빠르게 읽어옵니다.
     try:
         conn = get_db_connection()
         query_t = "SELECT id, title, status FROM tournaments WHERE club_id = %s AND deleted_at IS NULL ORDER BY id DESC"
@@ -80,10 +78,15 @@ def run_tab_play(get_db_connection):
         return
 
     tour_dict_list = df_active_t.to_dict('records')
+
+    # 세션 상태 등을 고려해 현재 사용자가 보고 있는 대회의 인덱스를 찾습니다.
     active_tour = st.selectbox("진행할 대회를 선택하세요", tour_dict_list, format_func=lambda
         x: f"{x['title']} [{'🏆 완료됨' if x['status'] == 'finished' else '🎮 진행중'}]")
-
     current_tour_status = active_tour['status']
+
+    # ⏱️ 👑 [클라우드 트래픽 최적화 패치] 대회가 'finished(마감)' 상태가 아닐 때만 60초 자동 새로고침 작동!
+    if current_tour_status != 'finished':
+        st_autorefresh(interval=60000, key="play_tab_refresh")
 
     try:
         conn = get_db_connection()
@@ -126,7 +129,7 @@ def run_tab_play(get_db_connection):
     is_ui_disabled = is_game_started or is_tournament_finished
 
     if is_tournament_finished:
-        st.success("🏆 이 대회는 관리자에 의해 최종 종료(마감) 처리되었습니다. 성적 변경이 불가능합니다.")
+        st.success("🏆 이 대회는 최종 종료(마감)되었습니다. 자동 새로고침이 중지되었으며 성적 변경이 불가능합니다.")
     else:
         st.info("📢 전광판 모드 활성화: 60초 주기로 다른 태블릿의 경기 점수가 화면에 실시간 자동 동기화됩니다.")
 
