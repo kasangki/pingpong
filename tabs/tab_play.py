@@ -86,7 +86,6 @@ def run_tab_play(get_db_connection):
             f"SELECT m.id, m.name, m.grade FROM tournament_players tp JOIN members m ON tp.member_id = m.id WHERE tp.tournament_id = {active_tour['id']} AND m.club_id = {club_id} ORDER BY m.id ASC",
             conn)
 
-        # 🚀 [클럽 격리 및 검증 쿼리 고도화] 일반 회원 브라우저에서도 club_id 기반으로 누락 없이 가져오도록 보강
         query_matches = """
             SELECT mr.group_idx, mr.player1_id, mr.player2_id, mr.player1_score, mr.player2_score 
             FROM match_results mr
@@ -102,7 +101,7 @@ def run_tab_play(get_db_connection):
         st.info("출전 선수가 부족합니다. (최소 2명 필요)")
         return
 
-    # 🚀 [정렬 보장형 바인딩] 일반 회원과 관리자 브라우저간 키 매핑이 100% 일치하도록 보장
+    # 🚀 기준 정렬 키 적재 파트 (대소 관계 절대 격리)
     db_scores = {}
     for _, row in df_saved_matches.iterrows():
         g_idx = int(row['group_idx'])
@@ -111,7 +110,6 @@ def run_tab_play(get_db_connection):
         p1_sc = int(row['player1_score'])
         p2_sc = int(row['player2_score'])
 
-        # 항상 작은 ID가 앞으로 오도록 key 구조를 강제 통일하여 브라우저간 불일치 원천 차단
         if p1_id < p2_id:
             db_scores[(g_idx, p1_id, p2_id)] = (p1_sc, p2_sc)
         else:
@@ -128,7 +126,6 @@ def run_tab_play(get_db_connection):
     else:
         st.info("📢 점수 기록 모드: 모든 회원이 본인 혹은 타인의 조 경기를 자유롭게 기록해 줄 수 있습니다.")
 
-    # 상단 실시간 동기화 버튼 유지
     c_status, c_refresh = st.columns([6, 1])
     with c_status:
         st.caption("💡 다른 사용자가 입력한 점수가 안 보인다면 우측 새로고침 버튼을 누르세요.")
@@ -197,12 +194,16 @@ def run_tab_play(get_db_connection):
                 db_p1_id, db_p2_id = (p1['id'], p2['id']) if p1['id'] < p2['id'] else (p2['id'], p1['id'])
                 score_key = (group_idx, db_p1_id, db_p2_id)
 
-                # 통일된 정렬 순서에 입각하여 안전하게 튜플 추출
                 saved_tuple = db_scores.get(score_key, (0, 0))
                 s1_saved, s2_saved = saved_tuple
 
-                # UI상 표시되는 선수의 위치(p1, p2)에 맞게 올바르게 스왑 매핑
-                v1, v2 = (s1_saved, s2_saved) if db_p1_id == p1['id'] else (s2_saved, s1_saved)
+                # ⭐ [버그 해결 핵심 핵심부]
+                # 대진 셔플 알고리즘이 뱉은 p1/p2 배치 순서에 종속되지 않고, DB 저장 순서와 정확하게 매칭 연산 스왑
+                if p1['id'] == db_p1_id:
+                    v1, v2 = s1_saved, s2_saved
+                else:
+                    v1, v2 = s2_saved, s1_saved
+
                 is_match_recorded = (v1 == 3 or v2 == 3)
 
                 c_num, c_p1, c_s1, c_vs, c_s2, c_p2, c_btn = st.columns([0.8, 2.3, 0.9, 0.3, 0.9, 2.3, 1.5])
@@ -232,6 +233,7 @@ def run_tab_play(get_db_connection):
                         elif sc1 != 3 and sc2 != 3:
                             st.error("⚠️ 세트 종료 기준 미달 (3점 선취 필요)")
                         else:
+                            # 저장할 때도 현재 화면 순서에 맞게 변수를 정렬하여 입력 처리
                             f_p1_sc = sc1 if p1['id'] == db_p1_id else sc2
                             f_p2_sc = sc2 if p1['id'] == db_p1_id else sc1
 
@@ -305,7 +307,7 @@ def run_tab_play(get_db_connection):
                 default_rank = m_ranks.get(p['id'], idx + 1)
 
                 c_b1, c_b2, c_b3, c_b4, c_b5 = st.columns([1.2, 2.3, 1.2, 1.2, 3.1])
-                medal = f"🥇 {default_rank}위" if default_rank == 1 else f"🥈 {default_rank}위" if default_rank == 2 else f"🥉 {default_rank}위" if default_rank == 3 else f"🏅 {default_rank}위"
+                medal = f"🥇 {default_rank}位" if default_rank == 1 else f"🥈 {default_rank}位" if default_rank == 2 else f"🥉 {default_rank}位" if default_rank == 3 else f"🏅 {default_rank}位"
                 c_b1.markdown(f"**{medal}**")
                 c_b2.markdown(f"<span class='text-main-bold'>{stat['name']}</span> ({stat['grade']}부)",
                               unsafe_allow_html=True)
@@ -424,7 +426,12 @@ def run_tab_play(get_db_connection):
 
                 s1_t_saved, s2_t_saved = db_scores.get(score_key, (0, 0))
 
-                v1, v2 = (s1_t_saved, s2_t_saved) if db_p1_id == p1['id'] else (s2_t_saved, s1_t_saved)
+                # ⭐ [토너먼트 순위 동기화 스왑 패치] 리그전과 동일하게 ID 순서에 따른 스왑 정밀 조작
+                if p1['id'] == db_p1_id:
+                    v1, v2 = s1_t_saved, s2_t_saved
+                else:
+                    v1, v2 = s2_t_saved, s1_t_saved
+
                 is_recorded = (v1 == 3 or v2 == 3)
 
                 if is_recorded:
@@ -522,7 +529,6 @@ def run_tab_play(get_db_connection):
                             f"<div style='background-color:#451A03; padding:18px; border-radius:10px; text-align:center; border:2px solid #F97316;'><h4>🥉 공동 3위</h4><h3 style='color:#FB923C; margin-top:8px;'>{th3_players}</h3></div>",
                             unsafe_allow_html=True)
 
-                    # 관리자용 최종 마감 셔터 버튼
                     if st.session_state.user_role == "admin" and not is_tournament_finished:
                         st.markdown("<br>", unsafe_allow_html=True)
                         if st.button("🏆 본 대회 최종 마감 및 종료하기 (수정 권한 영구 자물쇠)", use_container_width=True, type="primary"):
@@ -538,7 +544,6 @@ def run_tab_play(get_db_connection):
                                 st.success("🎉 대회가 마감되었습니다! 이제 모든 회원 화면이 완성된 결과로 영구 고정됩니다.")
                                 st.rerun()
                             except Exception as e:
-                                r_level, round_title = None, None
                                 st.error(f"마감 처리 실패: {e}")
 
                     if all_league_stats:
