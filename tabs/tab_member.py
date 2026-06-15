@@ -10,9 +10,15 @@ def run_tab_member(get_db_connection):
     # 👑 [CASE 1] 동호회 운영진(관리자) 로그인 시 화면 구성
     # =============================================================
     if user_role == "admin":
-        st.header("1. 전체 회원 등록 및 관리")
-        st.subheader("➕ 새 회원 추가 등록")
+        # 🌟 [UI 레이아웃 패치] 타이틀 우측에 즉시 동기화 새로고침 배치 (타 탭과의 디자인 일관성)
+        c_title, c_ref = st.columns([5.5, 1.5])
+        with c_title:
+            st.header("1. 전체 회원 등록 및 관리")
+        with c_ref:
+            if st.button("🔄 회원 명부 갱신", use_container_width=True, type="secondary", key="member_refresh_btn"):
+                st.rerun()
 
+        st.subheader("➕ 새 회원 추가 등록")
         show_deleted = st.checkbox("👁️ 탈퇴(숨김) 회원도 명단에 함께 표시하기", value=False)
 
         with st.form("admin_add_member_form", clear_on_submit=True):
@@ -45,6 +51,8 @@ def run_tab_member(get_db_connection):
                         conn.commit()
                         cur.close()
                         conn.close()
+                        # 💡 [UX 패치] 리런 전 스마트폰 팝업 토스트로 저장 확신 부여
+                        st.toast(f"🎉 [{m_name}] 선수가 신규 등록되었습니다.")
                         st.success(f"🎉 [{m_name}] 선수가 성공적으로 등록되었습니다!")
                         st.rerun()
                     except Exception as e:
@@ -152,7 +160,7 @@ def run_tab_member(get_db_connection):
                                 conn.commit()
                                 cur.close()
                                 conn.close()
-                                st.success(f"📢 {edit_name} 선수의 정보가 업데이트되었습니다.")
+                                st.toast(f"📢 {edit_name} 선수의 정보가 업데이트되었습니다.")
                                 st.rerun()
                             except Exception as e:
                                 st.error(f"❌ 정보 수정 실패: 중복 아이디이거나 오류가 발생했습니다. ({e})")
@@ -166,7 +174,7 @@ def run_tab_member(get_db_connection):
                             conn.commit()
                             cur.close()
                             conn.close()
-                            st.success(f"정상적으로 반영되었습니다.")
+                            st.toast("✅ 상태 변경 사항이 시스템에 동기화되었습니다.")
                             st.rerun()
                         except Exception as e:
                             st.error(f"상태 처리 실패: {e}")
@@ -217,7 +225,7 @@ def run_tab_member(get_db_connection):
                         conn.commit()
                         cur.close()
                         conn.close()
-                        st.success("🎉 내 정보가 안전하게 수정되었습니다!")
+                        st.toast("🎉 프로필이 안전하게 변경되었습니다.")
                         st.rerun()
                     except Exception as e:
                         st.error(f"❌ 수정 실패: {e}")
