@@ -3,20 +3,30 @@ import pandas as pd
 
 
 def render_ranking_table(ranking_data):
-    """럭셔리 랭킹 테이블 렌더링 함수 (다크 모드 최적화)"""
+    """럭셔리 랭킹 테이블 렌더링 함수 (초고가시성 및 가독성 업그레이드 버전)"""
     html_table = "<style>"
-    html_table += ".ranking-container { width: 100%; margin: 20px 0; background: #1E293B; border-radius: 16px; box-shadow: 0 4px 20px rgba(0,0,0,0.3); border: 1px solid #334155; overflow: hidden; }"
+    # 🎨 전체 컨테이너 배경 및 테두리 밝기 조정
+    html_table += ".ranking-container { width: 100%; margin: 20px 0; background: #131A2C; border-radius: 16px; box-shadow: 0 4px 25px rgba(0,0,0,0.4); border: 1px solid #475569; overflow: hidden; }"
     html_table += ".ranking-table { width: 100%; border-collapse: collapse; text-align: center; font-family: 'Pretendard', sans-serif; }"
-    html_table += ".ranking-table thead { background: #1E1B4B; border-bottom: 2px solid #334155; }"
-    html_table += ".ranking-table th { padding: 16px; color: #94A3B8; font-weight: 700; font-size: 0.95rem; letter-spacing: 0.05em; }"
-    html_table += ".ranking-table td { padding: 16px; border-bottom: 1px solid #334155; color: #F1F5F9; }"
-    html_table += ".ranking-table tbody tr:hover { background-color: #334155; transition: 0.2s; }"
-    html_table += ".rank-num { font-weight: 800; font-size: 1.1rem; }"
-    html_table += ".gold { color: #FBBF24; background: #78350F; padding: 4px 12px; border-radius: 20px; font-weight: bold; }"
-    html_table += ".silver { color: #E2E8F0; background: #334155; padding: 4px 12px; border-radius: 20px; font-weight: bold; }"
-    html_table += ".bronze { color: #FB923C; background: #451A03; padding: 4px 12px; border-radius: 20px; font-weight: bold; }"
-    html_table += ".name-cell { font-weight: 700; font-size: 1.1rem; color: #FFFFFF; }"
-    html_table += ".wins-cell { color: #818CF8; font-weight: 800; font-size: 1.15rem; }"
+
+    # TableHeader: 기존보다 훨씬 밝고 선명한 테두리와 백색 텍스트 배치
+    html_table += ".ranking-table thead { background: #1E293B; border-bottom: 3px solid #475569; }"
+    html_table += ".ranking-table th { padding: 18px 16px; color: #FFFFFF; font-weight: 800; font-size: 1.05rem; letter-spacing: 0.05em; }"
+
+    # TableBody: 데이터 가독성을 위해 테두리 구분선(border-bottom) 밝기 강화
+    html_table += ".ranking-table td { padding: 18px 16px; border-bottom: 1px solid #334155; color: #F8FAFC; font-size: 1.05rem; }"
+    html_table += ".ranking-table tbody tr { border-bottom: 1px solid #475569; }"
+    html_table += ".ranking-table tbody tr:hover { background-color: #243249; transition: 0.2s; }"
+
+    # 🏅 메달 배지 가시성 초고도화
+    html_table += ".rank-num { font-weight: 800; font-size: 1.15rem; color: #CBD5E1; }"
+    html_table += ".gold { color: #FBBF24; background: #78350F; padding: 6px 14px; border-radius: 20px; font-weight: 900; font-size: 1.1rem; border: 1px solid #F59E0B; }"
+    html_table += ".silver { color: #F1F5F9; background: #334155; padding: 6px 14px; border-radius: 20px; font-weight: 900; font-size: 1.1rem; border: 1px solid #64748B; }"
+    html_table += ".bronze { color: #FF9D43; background: #451A03; padding: 6px 14px; border-radius: 20px; font-weight: 900; font-size: 1.1rem; border: 1px solid #D97706; }"
+
+    # 이름 및 승수 하이라이트 텍스트 밸런스
+    html_table += ".name-cell { font-weight: 800; font-size: 1.15rem; color: #FFFFFF; }"
+    html_table += ".wins-cell { color: #6366F1; font-weight: 900; font-size: 1.25rem; text-shadow: 0 0 10px rgba(99, 102, 241, 0.2); }"
     html_table += "</style>"
 
     html_table += "<div class='ranking-container'><table class='ranking-table'>"
@@ -33,7 +43,7 @@ def render_ranking_table(ranking_data):
         else:
             rank_cls, rank_txt = "rank-num", f"{rank}위"
 
-        html_table += f"<tr><td><span class='{rank_cls}'>{rank_txt}</span></td><td class='name-cell'>{row['name']}</td><td style='color:#94A3B8;'>{row['grade']}부</td><td class='wins-cell'>{row['total_wins']}승</td></tr>"
+        html_table += f"<tr><td><span class='{rank_cls}'>{rank_txt}</span></td><td class='name-cell'>{row['name']}</td><td style='color:#C8D2E6; font-weight: 600;'>{row['grade']}부</td><td class='wins-cell'>{row['total_wins']}승</td></tr>"
 
     html_table += "</tbody></table></div>"
     return html_table
@@ -58,9 +68,8 @@ def run_tab_ranking(get_db_connection):
     try:
         conn = get_db_connection()
 
-        # 💡 [SaaS 알고리즘 고도화 패치]
-        # 무겁게 컬럼을 늘리는 대신, 본선 토너먼트 그룹 코드(901 이상)에서 승리한 기록에 '1.2점' 가중치를 곱해 SUM 해버립니다.
-        # 이렇게 하면 같은 승수여도 본선에서 우승, 준우승을 차지하며 치고 올라간 엘리트 선수가 랭킹 정렬에서 무조건 우선권을 쥡니다!
+        # [SaaS 알고리즘 고도화 패치]
+        # 본선 토너먼트 매치(group_idx >= 900) 승리자에겐 1.2 가중치를 곱해 정렬 스코어를 산출합니다.
         query = """
             SELECT m.name, m.grade, 
                    COUNT(*) as total_wins,
@@ -93,7 +102,6 @@ def run_tab_ranking(get_db_connection):
             current_rank = 1
 
             for i, row in df_ranking.iterrows():
-                # 가중치 랭킹 스코어가 완전히 일치할 때만 공동 순위 처리
                 if i > 0 and row['ranking_score'] == df_ranking.iloc[i - 1]['ranking_score']:
                     pass
                 else:
