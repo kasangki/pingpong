@@ -1,6 +1,8 @@
 import streamlit as st
 import pandas as pd
 import math
+# 🚀 [실시간 인프라] 자동 새로고침 모듈 가져오기
+from streamlit_autorefresh import st_autorefresh
 
 
 # 야간 모드(다크 테마) 전용 초고가시성 럭셔리 스타일 정의
@@ -60,6 +62,11 @@ def run_tab_play(get_db_connection):
     st.markdown(get_style(), unsafe_allow_html=True)
     st.header("3. 실시간 경기 진행 및 결과 기록")
 
+    # 👑 [실시간 자동 갱신 트리거 엔진 설정]
+    # interval=3000 -> 3000밀리초(3초) 마다 백그라운드에서 코드를 재동기화 시킵니다.
+    # key="play_tab_refresh"를 주어 세션이 엉키지 않도록 안전 조치합니다.
+    st_autorefresh(interval=3000, key="play_tab_refresh")
+
     club_id = st.session_state.club_id
 
     try:
@@ -101,7 +108,6 @@ def run_tab_play(get_db_connection):
         st.info("출전 선수가 부족합니다. (최소 2명 필요)")
         return
 
-    # ID 정렬 기준 매핑 데이터
     db_scores = {}
     for _, row in df_saved_matches.iterrows():
         g_idx = int(row['group_idx'])
@@ -124,14 +130,7 @@ def run_tab_play(get_db_connection):
     if is_tournament_finished:
         st.success("🏆 이 대회는 관리자에 의해 최종 종료(마감) 처리되었습니다. 성적 변경이 불가능합니다.")
     else:
-        st.info("📢 점수 기록 모드: 모든 회원이 본인 혹은 타인의 조 경기를 자유롭게 기록해 줄 수 있습니다.")
-
-    c_status, c_refresh = st.columns([6, 1])
-    with c_status:
-        st.caption("💡 다른 사용자가 입력한 점수가 안 보인다면 우측 새로고침 버튼을 누르세요.")
-    with c_refresh:
-        if st.button("🔄 화면 새로고침", use_container_width=True):
-            st.rerun()
+        st.info("📢 전광판 모드 활성화: 3초 주기로 다른 태블릿의 경기 점수가 화면에 실시간 자동 동기화됩니다.")
 
     col_method, col_group_num = st.columns([2, 1])
     with col_method:
@@ -204,15 +203,19 @@ def run_tab_play(get_db_connection):
 
                 is_match_recorded = (v1 == 3 or v2 == 3)
 
-                # 🚀 [임시 상태 리셋 원천 차단 알고리즘 도입]
-                # 스핀박스 입력창의 고유 ID 키 발급 및 세션 캐싱 완전 격리
                 key_s1 = f"s1_val_{active_tour['id']}_{group_idx}_{idx}"
                 key_s2 = f"s2_val_{active_tour['id']}_{group_idx}_{idx}"
 
-                if key_s1 not in st.session_state:
+                # 💡 [핵심 싱크 패치] 자동 리프레시 시, 내가 "입력 중인 상태"가 아니라
+                # 이미 DB에 저장 완료된 타인의 최신 실시간 데이터라면 세션 값을 강제로 새 점수로 동기화시킵니다.
+                if is_match_recorded or (s1_saved != 0 or s2_saved != 0):
                     st.session_state[key_s1] = v1
-                if key_s2 not in st.session_state:
                     st.session_state[key_s2] = v2
+                else:
+                    if key_s1 not in st.session_state:
+                        st.session_state[key_s1] = v1
+                    if key_s2 not in st.session_state:
+                        st.session_state[key_s2] = v2
 
                 with st.container():
                     c_num, c_p1, c_s1, c_vs, c_s2, c_p2, c_btn = st.columns([0.8, 2.3, 0.9, 0.3, 0.9, 2.3, 1.5])
@@ -462,14 +465,18 @@ def run_tab_play(get_db_connection):
                 if not is_recorded:
                     round_all_clear = False
 
-                # 토너먼트용 격리 키 발급
                 key_t1 = f"t1_val_{active_tour['id']}_{round_level}_{idx}"
                 key_t2 = f"t2_val_{active_tour['id']}_{round_level}_{idx}"
 
-                if key_t1 not in st.session_state:
+                # 💡 [토너먼트 실시간 싱크 패치]
+                if is_recorded or (s1_t_saved != 0 or s2_t_saved != 0):
                     st.session_state[key_t1] = v1
-                if key_t2 not in st.session_state:
                     st.session_state[key_t2] = v2
+                else:
+                    if key_t1 not in st.session_state:
+                        st.session_state[key_t1] = v1
+                    if key_t2 not in st.session_state:
+                        st.session_state[key_t2] = v2
 
                 with st.container():
                     c_m, c_p1, c_s1, c_vs, c_s2, c_p2, c_save = st.columns([1.0, 2.3, 1.1, 0.4, 1.1, 2.3, 1.5])
@@ -505,7 +512,7 @@ def run_tab_play(get_db_connection):
                             if sc1 == 3 and sc2 == 3:
                                 st.error("⚠️ 3:3 동점은 저장할 수 없습니다.")
                             elif sc1 != 3 and sc2 != 3:
-                                East.error("⚠️ 한 명은 반드시 3점승이어야 합니다.")
+                                st.error("⚠️ 한 명은 반드시 3점승이어야 합니다.")
                             else:
                                 f_t_p1 = sc1 if p1['id'] == db_p1_id else sc2
                                 f_t_p2 = sc2 if p1['id'] == db_p1_id else sc1

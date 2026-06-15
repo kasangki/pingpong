@@ -2,3 +2,4 @@ streamlit>=1.30.0
 psycopg2-binary>=2.9.0
 pandas>=2.0.0
 streamlit-cookies-controller>=0.0.3
+streamlit-autorefresh>=0.0.1
