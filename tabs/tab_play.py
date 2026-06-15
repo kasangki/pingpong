@@ -64,7 +64,6 @@ def run_tab_play(get_db_connection):
 
     club_id = st.session_state.club_id
 
-    # 1. 먼저 가장 최신의 대회 상태를 빠르게 읽어옵니다.
     try:
         conn = get_db_connection()
         query_t = "SELECT id, title, status FROM tournaments WHERE club_id = %s AND deleted_at IS NULL ORDER BY id DESC"
@@ -78,13 +77,10 @@ def run_tab_play(get_db_connection):
         return
 
     tour_dict_list = df_active_t.to_dict('records')
-
-    # 세션 상태 등을 고려해 현재 사용자가 보고 있는 대회의 인덱스를 찾습니다.
     active_tour = st.selectbox("진행할 대회를 선택하세요", tour_dict_list, format_func=lambda
         x: f"{x['title']} [{'🏆 완료됨' if x['status'] == 'finished' else '🎮 진행중'}]")
     current_tour_status = active_tour['status']
 
-    # ⏱️ 👑 [클라우드 트래픽 최적화 패치] 대회가 'finished(마감)' 상태가 아닐 때만 60초 자동 새로고침 작동!
     if current_tour_status != 'finished':
         st_autorefresh(interval=60000, key="play_tab_refresh")
 
@@ -133,7 +129,6 @@ def run_tab_play(get_db_connection):
     else:
         st.info("📢 전광판 모드 활성화: 60초 주기로 다른 태블릿의 경기 점수가 화면에 실시간 자동 동기화됩니다.")
 
-    # 🔄 수동 새로고침 레이아웃 존 보존
     c_status, c_refresh = st.columns([5.5, 1.5])
     with c_status:
         st.caption("💡 다른 태블릿이 입력한 점수를 즉시 땡겨오려면 우측 버튼을 누르세요.")
@@ -269,6 +264,7 @@ def run_tab_play(get_db_connection):
                                 st.success(f"✅ 경기 결과가 안전하게 반영되었습니다!")
                                 st.rerun()
 
+            # 📊 1단계: 선수별 기본 승수 및 득실 세트 계산
             rank_stats = []
             for p in group_players:
                 wins, set_gain, set_loss = 0, 0, 0
@@ -288,68 +284,108 @@ def run_tab_play(get_db_connection):
 
                 rank_stats.append({
                     "player_obj": p, "id": p['id'], "name": p['name'], "grade": p['grade'],
-                    "승": wins, "득실차": (set_gain - set_loss)
+                    "승": wins, "득실차": (set_gain - set_loss), "승자승점수": 0.0
                 })
 
+            # 📊 2단계: 1순위(승) & 2순위(득실차)가 완벽히 같을 때만 발동하는 3순위 '승자승(H2H)' 세부 알고리즘
             for i in range(len(rank_stats)):
                 h2h_bonus = 0
                 for j in range(len(rank_stats)):
                     if i == j: continue
+                    # 1순위와 2순위가 완벽히 일치할 때 가산 레이스
                     if rank_stats[i]["승"] == rank_stats[j]["승"] and rank_stats[i]["득실차"] == rank_stats[j]["득실차"]:
                         p1_id, p2_id = rank_stats[i]["id"], rank_stats[j]["id"]
                         r1_id, r2_id = (p1_id, p2_id) if p1_id < p2_id else (p2_id, p1_id)
 
                         s1, s2 = db_scores.get((group_idx, r1_id, r2_id), (0, 0))
                         if s1 != 0 or s2 != 0:
+                            # 맞대결 승자에게 소수점 보너스 포인트 부여하여 타이 브레이크 처리
                             if (p1_id == r1_id and s1 > s2) or (p1_id == r2_id and s2 > s1):
                                 h2h_bonus += 0.1
-                rank_stats[i]["승자승점수"] = rank_stats[i]["득실차"] + h2h_bonus
+                rank_stats[i]["승자승점수"] = h2h_bonus
 
-            rank_stats_sorted = sorted(rank_stats, key=lambda x: (x["승"], x["승자승점수"]), reverse=True)
+            # 🚀 1순위 승수(내림차순) ➡️ 2순위 득실차(내림차순) ➡️ 3순위 승자승가산점(내림차순) 자동 랭킹 정렬
+            rank_stats_sorted = sorted(rank_stats, key=lambda x: (x["승"], x["득실차"], x["승자승점수"]), reverse=True)
 
-            st.markdown(f"<p class='rank-title'>📊 {group_idx + 1}조 리그전 현재 순위 등수표</p>", unsafe_allow_html=True)
+            # 세션 상태 껍데기 세팅
             if f"manual_rank_{active_tour['id']}_{group_idx}" not in st.session_state:
                 st.session_state[f"manual_rank_{active_tour['id']}_{group_idx}"] = {}
             m_ranks = st.session_state[f"manual_rank_{active_tour['id']}_{group_idx}"]
+
+            # 📊 3단계: 동률 처리(승, 득실차, 승자승 가산점까지 소수점 단위가 전부 똑같다면 공동 등수화)
+            computed_ranks = {}
+            current_rank = 1
+            for idx, stat in enumerate(rank_stats_sorted):
+                if idx > 0:
+                    prev = rank_stats_sorted[idx - 1]
+                    # 세 가지 주요 조건이 전부 일치하면 공동 순위로 동률 처리
+                    if stat["승"] == prev["승"] and stat["득실차"] == prev["득실차"] and stat["승자승점수"] == prev["승자승점수"]:
+                        pass  # 이전 등수를 그대로 유지 (공동 순위)
+                    else:
+                        current_rank = idx + 1
+                computed_ranks[stat["id"]] = current_rank
+
+            # 사용자가 수동으로 순위를 변경했는지 체크하기 위한 명단 전처리
+            final_ordered_players = []
+
+            # 수동으로 지정한 등수가 있다면 그것을 최우선으로 따르는 정렬 맵 빌드
+            for stat in rank_stats_sorted:
+                p = stat["player_obj"]
+                # 사용자가 강제 수동 지정을 했다면 그 값을 쓰고, 없으면 정밀 자동 계산된 등수를 가져옵니다.
+                display_rank = m_ranks.get(p['id'], computed_ranks[p['id']])
+                final_ordered_players.append({
+                    "player_obj": p,
+                    "id": p['id'],
+                    "name": p['name'],
+                    "grade": p['grade'],
+                    "승": stat["승"],
+                    "득실차": stat["득실차"],
+                    "final_rank": int(display_rank)
+                })
+
+            # 🚀 수동 강제 등수를 매겼을 때도 1등이 무조건 맨 위 줄에 오도록 최종 정렬 축 교체
+            final_ordered_players = sorted(final_ordered_players, key=lambda x: x["final_rank"])
+
+            st.markdown(f"<p class='rank-title'>📊 {group_idx + 1}조 리그전 현재 순위 등수표 (1등 최상단 자동 배치)</p>",
+                        unsafe_allow_html=True)
 
             c_h1, c_h2, c_h3, c_h4, c_h5 = st.columns([1.2, 2.3, 1.2, 1.2, 3.1])
             c_h1.markdown("**등수**")
             c_h2.markdown("**선수 정보**")
             c_h3.markdown("**승률(승)**")
             c_h4.markdown("**세트득실**")
-            c_h5.markdown("**순위 미세 조정**")
+            c_h5.markdown("**순위 미세 조정 (강제 등수 부여)**")
 
-            final_ordered_players = []
-            for idx, stat in enumerate(rank_stats_sorted):
-                p = stat["player_obj"]
-                default_rank = m_ranks.get(p['id'], idx + 1)
+            for item in final_ordered_players:
+                p_id = item["id"]
+                rank_num = item["final_rank"]
 
                 c_b1, c_b2, c_b3, c_b4, c_b5 = st.columns([1.2, 2.3, 1.2, 1.2, 3.1])
-                medal = f"🥇 {default_rank}위" if default_rank == 1 else f"🥈 {default_rank}위" if default_rank == 2 else f"🥉 {default_rank}위" if default_rank == 3 else f"🏅 {default_rank}위"
-                c_b1.markdown(f"**{medal}**")
-                c_b2.markdown(f"<span class='text-main-bold'>{stat['name']}</span> ({stat['grade']}부)",
-                              unsafe_allow_html=True)
-                c_b3.markdown(f"**{stat['승']}승**")
+                medal = f"🥇 {rank_num}위" if rank_num == 1 else f"🥈 {rank_num}위" if rank_num == 2 else f"🥉 {rank_num}위" if rank_num == 3 else f"🏅 {rank_num}위"
 
-                diff_val = stat['득실차']
+                c_b1.markdown(f"**{medal}**")
+                c_b2.markdown(f"<span class='text-main-bold'>{item['name']}</span> ({item['grade']}부)",
+                              unsafe_allow_html=True)
+                c_b3.markdown(f"**{item['승']}승**")
+
+                diff_val = item['득실차']
                 diff_text = f"+{diff_val}" if diff_val > 0 else f"{diff_val}"
                 c_b4.markdown(f"**{diff_text}**")
 
                 with c_b5:
                     new_rank = st.number_input(
-                        f"등수 변경 {stat['name']}", min_value=1, max_value=len(group_players),
-                        value=int(default_rank), step=1, key=f"mr_{group_idx}_{p['id']}",
+                        f"등수 변경 {item['name']}", min_value=1, max_value=len(group_players),
+                        value=rank_num, step=1, key=f"mr_{group_idx}_{p_id}",
                         label_visibility="collapsed", disabled=is_score_locked
                     )
-                    m_ranks[p['id']] = new_rank
+                    # 수동 조작 이벤트가 감지되면 세션 상태에 즉시 동기화 박제
+                    if new_rank != rank_num:
+                        m_ranks[p_id] = new_rank
+                        st.rerun()
 
-                final_ordered_players.append({"player_obj": p, "final_rank": new_rank, "name": p['name']})
-
-                if p['id'] in all_league_stats:
-                    all_league_stats[p['id']]["승"] = stat['승']
-                    all_league_stats[p['id']]["득실차"] = stat['득실차']
-
-            final_ordered_players = sorted(final_ordered_players, key=lambda x: x["final_rank"])
+                if p_id in all_league_stats:
+                    all_league_stats[p_id]["승"] = item['승']
+                    all_league_stats[p_id]["득실차"] = item['득실차']
 
             total_matches_count = len(round_matches)
             recorded_matches_count = sum(1 for (p1, p2) in round_matches if (
