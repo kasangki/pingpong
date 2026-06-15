@@ -1,7 +1,7 @@
 import streamlit as st
 import pandas as pd
 import math
-# 🚀 [실시간 인프라] 자동 새로고침 모듈 가져오기
+# 🚀 자동 새로고침 모듈
 from streamlit_autorefresh import st_autorefresh
 
 
@@ -62,9 +62,7 @@ def run_tab_play(get_db_connection):
     st.markdown(get_style(), unsafe_allow_html=True)
     st.header("3. 실시간 경기 진행 및 결과 기록")
 
-    # 👑 [실시간 자동 갱신 트리거 엔진 설정]
-    # interval=3000 -> 3000밀리초(3초) 마다 백그라운드에서 코드를 재동기화 시킵니다.
-    # key="play_tab_refresh"를 주어 세션이 엉키지 않도록 안전 조치합니다.
+    # ⏱️ 3초 주기로 백그라운드 자동 갱신 트리거 가동
     st_autorefresh(interval=3000, key="play_tab_refresh")
 
     club_id = st.session_state.club_id
@@ -131,6 +129,14 @@ def run_tab_play(get_db_connection):
         st.success("🏆 이 대회는 관리자에 의해 최종 종료(마감) 처리되었습니다. 성적 변경이 불가능합니다.")
     else:
         st.info("📢 전광판 모드 활성화: 3초 주기로 다른 태블릿의 경기 점수가 화면에 실시간 자동 동기화됩니다.")
+
+    # ⭐ [요청사항 반영] 눈에 띄는 대형 수동 새로고침 버튼 존 (자동 리프레시와 완벽 공존)
+    c_status, c_refresh = st.columns([5.5, 1.5])
+    with c_status:
+        st.caption("💡 스마트폰이나 태블릿 화면을 즉시 동기화하려면 우측 버튼을 누르세요.")
+    with c_refresh:
+        if st.button("🔄 즉시 화면 새로고침", use_container_width=True, type="secondary"):
+            st.rerun()
 
     col_method, col_group_num = st.columns([2, 1])
     with col_method:
@@ -206,8 +212,6 @@ def run_tab_play(get_db_connection):
                 key_s1 = f"s1_val_{active_tour['id']}_{group_idx}_{idx}"
                 key_s2 = f"s2_val_{active_tour['id']}_{group_idx}_{idx}"
 
-                # 💡 [핵심 싱크 패치] 자동 리프레시 시, 내가 "입력 중인 상태"가 아니라
-                # 이미 DB에 저장 완료된 타인의 최신 실시간 데이터라면 세션 값을 강제로 새 점수로 동기화시킵니다.
                 if is_match_recorded or (s1_saved != 0 or s2_saved != 0):
                     st.session_state[key_s1] = v1
                     st.session_state[key_s2] = v2
@@ -294,7 +298,7 @@ def run_tab_play(get_db_connection):
 
                         s1, s2 = db_scores.get((group_idx, r1_id, r2_id), (0, 0))
                         if s1 != 0 or s2 != 0:
-                            if (p1_id == r1_id and s1 > s2) or (p1_id == r2_id and s2 > s1):
+                            if (p1_id == r1_id & & s1 > s2) or (p1_id == r2_id and s2 > s1):
                                 h2h_bonus += 0.1
                 rank_stats[i]["승자승점수"] = rank_stats[i]["득실차"] + h2h_bonus
 
@@ -468,7 +472,6 @@ def run_tab_play(get_db_connection):
                 key_t1 = f"t1_val_{active_tour['id']}_{round_level}_{idx}"
                 key_t2 = f"t2_val_{active_tour['id']}_{round_level}_{idx}"
 
-                # 💡 [토너먼트 실시간 싱크 패치]
                 if is_recorded or (s1_t_saved != 0 or s2_t_saved != 0):
                     st.session_state[key_t1] = v1
                     st.session_state[key_t2] = v2
