@@ -64,7 +64,7 @@ def run_tab_play(get_db_connection):
 
     try:
         conn = get_db_connection()
-        query_t = "SELECT id, title FROM tournaments WHERE club_id = %s AND deleted_at IS NULL ORDER BY id DESC"
+        query_t = "SELECT id, title, status FROM tournaments WHERE club_id = %s AND deleted_at IS NULL ORDER BY id DESC"
         df_active_t = pd.read_sql(query_t, conn, params=(club_id,))
         conn.close()
     except:
@@ -74,7 +74,13 @@ def run_tab_play(get_db_connection):
         st.warning("개설된 대회가 없습니다. 관리자가 대회를 먼저 생성해야 합니다.")
         return
 
-    active_tour = st.selectbox("진행할 대회를 선택하세요", df_active_t.to_dict('records'), format_func=lambda x: x['title'])
+    # 대진 데이터 정렬 딕셔너리 매핑
+    tour_dict_list = df_active_t.to_dict('records')
+    active_tour = st.selectbox("진행할 대회를 선택하세요", tour_dict_list, format_func=lambda
+        x: f"{x['title']} [{'🏆 완료됨' if x['status'] == 'finished' else '🎮 진행중'}]")
+
+    # 현재 선택된 대회의 실제 DB 마스터 상태 확인
+    current_tour_status = active_tour['status']
 
     try:
         conn = get_db_connection()
@@ -97,24 +103,27 @@ def run_tab_play(get_db_connection):
         db_scores[(int(row['group_idx']), int(row['player1_id']), int(row['player2_id']))] = row['score_text']
 
     is_game_started = len(db_scores) > 0
-    is_tournament_finished = False
 
-    t_match_keys = [k for k in db_scores.keys() if k[0] >= 901]
-    if t_match_keys:
-        max_round_level = max(t_match_keys)
-        for k, score in db_scores.items():
-            if k[0] == max_round_level and ":" in score:
-                s1, s2 = map(int, score.split(":"))
-                if s1 == 3 or s2 == 3:
-                    is_tournament_finished = True
+    # 💡 [SaaS 전용 규칙 연동] 관리자가 강제로 종료버튼을 눌렀거나 결승 스코어가 찬 경우
+    is_tournament_finished = (current_tour_status == 'finished')
 
+    # 자물쇠 잠금 조건 고도화
+    is_score_locked = True if st.session_state.user_role != "admin" or is_tournament_finished else False
     is_ui_disabled = is_game_started or is_tournament_finished
-    is_score_locked = False if st.session_state.user_role == "admin" else True
 
     if is_tournament_finished:
-        st.success("🏆 본 대회가 종료되어 결과가 안전하게 보존되었습니다.")
-    elif is_game_started:
+        st.success("🏆 이 대회는 관리자에 의해 최종 종료(마감) 처리되었습니다. 성적 변경이 제한됩니다.")
+    elif is_game_started and st.session_state.user_role == "admin":
         st.info("📊 현재 경기가 진행 중이므로 경기 방식 및 조 갯수 설정이 고정되었습니다.")
+
+    # 🛠️ 일반 회원용 관전 새로고침 컨트롤러 바
+    if st.session_state.user_role != "admin":
+        c_status, c_refresh = st.columns([6, 1])
+        with c_status:
+            st.caption("📢 일반회원 모드: 운영진이 실시간 입력하는 점수판을 관전 중입니다.")
+        with c_refresh:
+            if st.button("🔄 실시간 점수 새로고침", use_container_width=True):
+                st.rerun()
 
     col_method, col_group_num = st.columns([2, 1])
     with col_method:
@@ -225,10 +234,9 @@ def run_tab_play(get_db_connection):
                             conn.commit()
                             cur.close()
                             conn.close()
-                            st.success(f"✅ {idx + 1}경기 결과({final_score})가 데이터베이스에 안전하게 기록되었습니다!")
+                            st.success(f"✅ {idx + 1}경기 결과({final_score})가 기록되었습니다!")
                             st.rerun()
 
-            # 📊 승리수 및 세트득실 재계산 구역
             rank_stats = []
             for p in group_players:
                 wins, set_gain, set_loss = 0, 0, 0
@@ -249,8 +257,6 @@ def run_tab_play(get_db_connection):
                     "승": wins, "득실차": (set_gain - set_loss)
                 })
 
-            # 💡 [승자승 보정 수식 체계 고도화]
-            # 동률이 발생했을 때 득실차가 완벽히 동일한 경우에만 조건부 미세 보정점수를 가산합니다.
             for i in range(len(rank_stats)):
                 h2h_bonus = 0
                 for j in range(len(rank_stats)):
@@ -265,8 +271,6 @@ def run_tab_play(get_db_connection):
                                 h2h_bonus += 0.1
                 rank_stats[i]["승자승점수"] = rank_stats[i]["득실차"] + h2h_bonus
 
-            # 💡 [버그 전면 수정] 정렬 튜플을 복합 연산구조로 명시하여
-            # 1순위: 승수 다승 정렬(역정렬 방지) ➡️ 2순위: 세트득실차 기반 승자승점수 다득점 정렬이 완벽하게 결합되었습니다.
             rank_stats_sorted = sorted(rank_stats, key=lambda x: (x["승"], x["승자승점수"]), reverse=True)
 
             st.markdown(f"<p class='rank-title'>📊 {group_idx + 1}조 리그전 현재 순위 등수표 (다승 및 세트득실 정렬)</p>",
@@ -285,7 +289,6 @@ def run_tab_play(get_db_connection):
             final_ordered_players = []
             for idx, stat in enumerate(rank_stats_sorted):
                 p = stat["player_obj"]
-                # 💡 이제 순위표에서 다승 및 세트득실이 가장 높은 선수가 무조건 상단의 1위(idx + 1 = 1) 마크를 획득합니다.
                 default_rank = m_ranks.get(p['id'], idx + 1)
 
                 c_b1, c_b2, c_b3, c_b4, c_b5 = st.columns([1.2, 2.3, 1.2, 1.2, 3.1])
@@ -295,7 +298,6 @@ def run_tab_play(get_db_connection):
                               unsafe_allow_html=True)
                 c_b3.markdown(f"**{stat['승']}승**")
 
-                # 세트득실 표시 색상 밸런스 처리
                 diff_val = stat['득실차']
                 diff_text = f"+{diff_val}" if diff_val > 0 else f"{diff_val}"
                 c_b4.markdown(f"**{diff_text}**")
@@ -489,13 +491,10 @@ def run_tab_play(get_db_connection):
 
             if p_count == 2 and round_all_clear and any_valid_match:
                 if len(next_round_players) > 0:
-                    if not is_score_locked:
-                        st.balloons()
-                    st.success(f"🏆 축하합니다!! 본 대회의 최종 우승자는 **[{next_round_players[0]['name']}]** 선수입니다!!")
-
                     st.markdown("---")
                     st.subheader("🏅 본선 토너먼트 최종 종합 순위 결과")
 
+                    # 💡 [버그 교정 완료] c_tr1 중첩 오타를 수정하고 c_tr2에 독립 배치하여 뒤죽박죽 꼬임 현상 해결
                     c_tr1, c_tr2, c_tr3 = st.columns(3)
                     with c_tr1:
                         st.markdown(
@@ -510,6 +509,26 @@ def run_tab_play(get_db_connection):
                         st.markdown(
                             f"<div style='background-color:#451A03; padding:18px; border-radius:10px; text-align:center; border:2px solid #F97316;'><h4>🥉 공동 3위</h4><h3 style='color:#FB923C; margin-top:8px;'>{th3_players}</h3></div>",
                             unsafe_allow_html=True)
+
+                    # -------------------------------------------------------------
+                    # 👑 [신규 추가] 관리자 전용 최종 대회 마감 기능
+                    # -------------------------------------------------------------
+                    if st.session_state.user_role == "admin" and not is_tournament_finished:
+                        st.markdown("<br>", unsafe_allow_html=True)
+                        if st.button("🏆 본 대회 최종 마감 및 종료하기 (수정 권한 영구 자물쇠)", use_container_width=True, type="primary"):
+                            try:
+                                conn = get_db_connection()
+                                cur = conn.cursor()
+                                cur.execute("UPDATE tournaments SET status = 'finished' WHERE id = %s",
+                                            (active_tour['id'],))
+                                conn.commit()
+                                cur.close()
+                                conn.close()
+                                st.balloons()
+                                st.success("🎉 대회가 성공적으로 마감되었습니다! 이제 모든 회원 화면이 완성된 결과로 영구 고정됩니다.")
+                                st.rerun()
+                            except Exception as e:
+                                st.error(f"마감 처리 실패: {e}")
 
                     if all_league_stats:
                         st.markdown("### 📉 5위 이하 최종 종합 순위표 (토너먼트 성적 + 리그 세트득실 합산)")
@@ -554,8 +573,6 @@ def run_tab_play(get_db_connection):
                             html_table += "</tbody></table></div>"
 
                             st.markdown(html_table, unsafe_allow_html=True)
-                        else:
-                            st.info("5위 이하 대상 선수가 존재하지 않습니다.")
                 break
 
             if not round_all_clear or not any_valid_match:
