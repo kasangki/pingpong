@@ -129,11 +129,12 @@ def run_tab_play(get_db_connection):
     else:
         st.info("📢 전광판 모드 활성화: 60초 주기로 다른 태블릿의 경기 점수가 화면에 실시간 자동 동기화됩니다.")
 
+    # 1. 최상단 새로고침
     c_status, c_refresh = st.columns([5.5, 1.5])
     with c_status:
         st.caption("💡 다른 태블릿이 입력한 점수를 즉시 땡겨오려면 우측 버튼을 누르세요.")
     with c_refresh:
-        if st.button("🔄 즉시 화면 새로고침", use_container_width=True, type="secondary"):
+        if st.button("🔄 즉시 화면 새로고침", use_container_width=True, type="secondary", key="top_refresh_btn"):
             st.rerun()
 
     col_method, col_group_num = st.columns([2, 1])
@@ -245,7 +246,7 @@ def run_tab_play(get_db_connection):
                             if sc1 == 3 and sc2 == 3:
                                 st.error("⚠️ 3:3 동점은 입력할 수 없습니다.")
                             elif sc1 != 3 and sc2 != 3:
-                                st.error("⚠️ 세트 종료 기준 미달 (3점 선취 필요)")
+                                _st.error("⚠️ 세트 종료 기준 미달 (3점 선취 필요)")
                             else:
                                 f_p1_sc = sc1 if p1['id'] == db_p1_id else sc2
                                 f_p2_sc = sc2 if p1['id'] == db_p1_id else sc1
@@ -302,7 +303,7 @@ def run_tab_play(get_db_connection):
                                 h2h_bonus += 0.1
                 rank_stats[i]["승자승점수"] = h2h_bonus
 
-            # 🚀 [교정] 자동 정렬 축 고정 (승수 내림차순 -> 득실차 내림차순 -> 승자승 가산점 내림차순)
+            # 🚀 자동 정렬 축 고정
             rank_stats_sorted = sorted(rank_stats, key=lambda x: (x["승"], x["득실차"], x["승자승점수"]), reverse=True)
 
             # 공동 순위(동률) 처리 맵 빌드
@@ -317,34 +318,29 @@ def run_tab_play(get_db_connection):
                         current_rank = idx + 1
                 computed_ranks[stat["id"]] = current_rank
 
-            # 수동 등수 매핑 세션 핸들러
             manual_key = f"m_rank_map_{active_tour['id']}_{group_idx}"
             if manual_key not in st.session_state:
                 st.session_state[manual_key] = {}
             m_ranks = st.session_state[manual_key]
 
-            # 🚀 렌더링용 마스터 리스트 조립 (자동 계산 결과 적용)
             render_list = []
             for stat in rank_stats_sorted:
                 p_id = stat["id"]
-                # 관리자가 임의 지정한 변경 등수가 있다면 그것을 쓰고, 없다면 청정 자동계산 등수를 최종 채택합니다.
                 final_rank = m_ranks.get(p_id, computed_ranks[p_id])
-
                 render_list.append({
-                    "player_obj": stat["player_obj"],
-                    "id": p_id,
-                    "name": stat["name"],
-                    "grade": stat["grade"],
-                    "승": stat["승"],
-                    "득실차": stat["득실차"],
-                    "rank": int(final_rank)
+                    "player_obj": stat["player_obj"], "id": p_id, "name": stat["name"], "grade": stat["grade"],
+                    "승": stat["승"], "득실차": stat["득실차"], "rank": int(final_rank)
                 })
 
-            # 화면에 출력될 최종 등수 정렬 (1등이 무조건 맨 위 줄로 꽂힙니다)
             render_list = sorted(render_list, key=lambda x: x["rank"])
 
-            st.markdown(f"<p class='rank-title'>📊 {group_idx + 1}조 리그전 실시간 순위 등수표 (성적순 자동 배치)</p>",
-                        unsafe_allow_html=True)
+            # 🌟 2. 각 조 리그 순위표 헤더 옆에 새로고침 배치
+            c_title, c_ref = st.columns([5.5, 1.5])
+            with c_title:
+                st.markdown(f"<p class='rank-title'>📊 {group_idx + 1}조 리그전 실시간 순위 등수표</p>", unsafe_allow_html=True)
+            with c_ref:
+                if st.button("🔄 현재 조 갱신", use_container_width=True, type="secondary", key=f"ref_group_{group_idx}"):
+                    st.rerun()
 
             c_h1, c_h2, c_h3, c_h4 = st.columns([1.5, 3.0, 1.5, 1.5])
             c_h1.markdown("**등수**")
@@ -370,16 +366,12 @@ def run_tab_play(get_db_connection):
                     all_league_stats[item['id']]["승"] = item['승']
                     all_league_stats[item['id']]["득실차"] = item['득실차']
 
-            # ⭐⭐⭐ [UI 혁신 패치] 화면 번쩍임 및 등수 하이재킹 유발 원인이던 입력창을 순위표에서 완전 격리 제거!
-            # 동률 조정 및 강제 순위 제어가 필요할 때만 하단 패널에서 독립적으로 작동하도록 우아하게 배치했습니다.
             with st.expander(f"🛠️ {group_idx + 1}조 순위 강제 미세 조정 및 동률 파괴 제어판"):
-                st.caption("💡 승/득실/승자승까지 똑같은 동률이거나, 특정 선수의 등수를 임의로 조정해야 할 때 아래에서 조절하세요.")
                 for item in render_list:
                     p_id = item["id"]
                     current_saved = m_ranks.get(p_id, computed_ranks[p_id])
-
                     new_val = st.number_input(
-                        f"🔺 {item['name']} ({item['grade']}부) 강제 등수 설정",
+                        f"🔺 {item['name']} 강제 등수 설정",
                         min_value=1, max_value=len(group_players), value=int(current_saved), step=1,
                         key=f"adjust_{group_idx}_{p_id}"
                     )
@@ -387,8 +379,7 @@ def run_tab_play(get_db_connection):
                         m_ranks[p_id] = new_val
                         st.rerun()
 
-                if st.button("🔄 이 조의 순위 미세조정 내역 초기화 (순수 자동성적순 롤백)", key=f"reset_btn_{group_idx}",
-                             use_container_width=True):
+                if st.button("🔄 이 조의 순위 미세조정 내역 초기화", key=f"reset_btn_{group_idx}", use_container_width=True):
                     st.session_state[manual_key] = {}
                     st.rerun()
 
@@ -420,7 +411,14 @@ def run_tab_play(get_db_connection):
     # 🌲 2. 本선 토너먼트 파트
     # ==========================================
     if (game_method == "토너먼트" or game_method == "혼합 방식 (리그 후 토너먼트)") and len(final_pool) >= 2:
-        st.header("🏆 본선 토너먼트 매치 대진표")
+
+        # 🌟 3. 본선 토너먼트 대진표 헤더 옆에도 즉시 새로고침 배치
+        c_tour_title, c_tour_ref = st.columns([5.5, 1.5])
+        with c_tour_title:
+            st.header("🏆 본선 토너먼트 매치 대진표")
+        with c_tour_ref:
+            if st.button("🔄 대진표 실시간 동기화", use_container_width=True, type="secondary", key="tour_refresh_btn"):
+                st.rerun()
 
         next_power = 2 ** math.ceil(math.log2(len(final_pool)))
         full_bracket = list(final_pool)
