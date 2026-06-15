@@ -62,8 +62,8 @@ def run_tab_play(get_db_connection):
     st.markdown(get_style(), unsafe_allow_html=True)
     st.header("3. 실시간 경기 진행 및 결과 기록")
 
-    # ⏱️ 3초 주기로 백그라운드 자동 갱신 트리거 가동
-    st_autorefresh(interval=3000, key="play_tab_refresh")
+    # ⏱️ 👑 [주기 고도화 패치] 60초(60000ms) 주기로 백그라운드 자동 갱신 트리거 가동
+    st_autorefresh(interval=60000, key="play_tab_refresh")
 
     club_id = st.session_state.club_id
 
@@ -128,12 +128,12 @@ def run_tab_play(get_db_connection):
     if is_tournament_finished:
         st.success("🏆 이 대회는 관리자에 의해 최종 종료(마감) 처리되었습니다. 성적 변경이 불가능합니다.")
     else:
-        st.info("📢 전광판 모드 활성화: 3초 주기로 다른 태블릿의 경기 점수가 화면에 실시간 자동 동기화됩니다.")
+        st.info("📢 전광판 모드 활성화: 60초 주기로 다른 태블릿의 경기 점수가 화면에 실시간 자동 동기화됩니다.")
 
-    # ⭐ [요청사항 반영] 눈에 띄는 대형 수동 새로고침 버튼 존 (자동 리프레시와 완벽 공존)
+    # 🔄 수동 새로고침 레이아웃 존 보존
     c_status, c_refresh = st.columns([5.5, 1.5])
     with c_status:
-        st.caption("💡 스마트폰이나 태블릿 화면을 즉시 동기화하려면 우측 버튼을 누르세요.")
+        st.caption("💡 다른 태블릿이 입력한 점수를 즉시 땡겨오려면 우측 버튼을 누르세요.")
     with c_refresh:
         if st.button("🔄 즉시 화면 새로고침", use_container_width=True, type="secondary"):
             st.rerun()
@@ -298,7 +298,7 @@ def run_tab_play(get_db_connection):
 
                         s1, s2 = db_scores.get((group_idx, r1_id, r2_id), (0, 0))
                         if s1 != 0 or s2 != 0:
-                            if (p1_id == r1_id & & s1 > s2) or (p1_id == r2_id and s2 > s1):
+                            if (p1_id == r1_id and s1 > s2) or (p1_id == r2_id and s2 > s1):
                                 h2h_bonus += 0.1
                 rank_stats[i]["승자승점수"] = rank_stats[i]["득실차"] + h2h_bonus
 

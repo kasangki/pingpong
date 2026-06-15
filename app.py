@@ -155,6 +155,16 @@ st.markdown("""
         height: 100vh !important;
         padding-bottom: 0px !important;
     }
+
+    /* 🛠️ ⭐ [추가 패치] 실시간 자동 새로고침 시 화면 전체가 어두워졌다 밝아지는 전광판 섬광 버그 박멸 */
+    /* 브라우저가 화면을 백지화하고 재조립할 때 배경색 레이어를 바닥에 강제 고정하여 번쩍임을 부드럽게 억제합니다. */
+    [data-testid="stAppViewContainer"], .stApp, iframe {
+        transition: opacity 0.15s ease-in-out !important;
+        background-color: #0B0F19 !important;
+    }
+    div[data-testid="stVerticalBlock"] {
+        gap: 1rem !important;
+    }
     </style>
 """, unsafe_allow_html=True)
 
@@ -489,7 +499,7 @@ if not st.session_state.logged_in:
                             except:
                                 st.error("❌ 이미 이 동호회에 존재하거나 사용 중인 아이디입니다.")
                         else:
-                            st.warning("모든 필드를 빠짐없이 입력해 주세요.")
+                            st.warning("모든 필드를 빠жь없이 입력해 주세요.")
             else:
                 st.info("현재 개설되어 승인 완료된 동호회가 존재하지 않습니다.")
     st.stop()
