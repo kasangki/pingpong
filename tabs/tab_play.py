@@ -86,10 +86,14 @@ def run_tab_play(get_db_connection):
             f"SELECT m.id, m.name, m.grade FROM tournament_players tp JOIN members m ON tp.member_id = m.id WHERE tp.tournament_id = {active_tour['id']} AND m.club_id = {club_id} ORDER BY m.id ASC",
             conn)
 
-        # 🚀 [DB 구조 혁신] score_text 대신 분리된 정수형 칼럼을 곧바로 패치
-        df_saved_matches = pd.read_sql(
-            f"SELECT group_idx, player1_id, player2_id, player1_score, player2_score FROM match_results WHERE tournament_id = {active_tour['id']}",
-            conn)
+        # 🚀 [클럽 격리 및 검증 쿼리 고도화] 일반 회원 브라우저에서도 club_id 기반으로 누락 없이 가져오도록 보강
+        query_matches = """
+            SELECT mr.group_idx, mr.player1_id, mr.player2_id, mr.player1_score, mr.player2_score 
+            FROM match_results mr
+            JOIN tournaments t ON mr.tournament_id = t.id
+            WHERE mr.tournament_id = %s AND t.club_id = %s
+        """
+        df_saved_matches = pd.read_sql(query_matches, conn, params=(active_tour['id'], club_id))
         conn.close()
     except:
         df_players, df_saved_matches = pd.DataFrame(), pd.DataFrame()
@@ -98,16 +102,24 @@ def run_tab_play(get_db_connection):
         st.info("출전 선수가 부족합니다. (최소 2명 필요)")
         return
 
-    # 🚀 메모리 딕셔너리 구조 개편: (조인덱스, p1_id, p2_id) -> (player1_score, player2_score)
+    # 🚀 [정렬 보장형 바인딩] 일반 회원과 관리자 브라우저간 키 매핑이 100% 일치하도록 보장
     db_scores = {}
     for _, row in df_saved_matches.iterrows():
-        db_scores[(int(row['group_idx']), int(row['player1_id']), int(row['player2_id']))] = (
-        int(row['player1_score']), int(row['player2_score']))
+        g_idx = int(row['group_idx'])
+        p1_id = int(row['player1_id'])
+        p2_id = int(row['player2_id'])
+        p1_sc = int(row['player1_score'])
+        p2_sc = int(row['player2_score'])
+
+        # 항상 작은 ID가 앞으로 오도록 key 구조를 강제 통일하여 브라우저간 불일치 원천 차단
+        if p1_id < p2_id:
+            db_scores[(g_idx, p1_id, p2_id)] = (p1_sc, p2_sc)
+        else:
+            db_scores[(g_idx, p2_id, p1_id)] = (p2_sc, p1_sc)
 
     is_game_started = len(db_scores) > 0
     is_tournament_finished = (current_tour_status == 'finished')
 
-    # 👑 [권한 자물쇠 개방] 관리자가 강제로 마감('finished')하기 전까지는 일반회원도 "누구나 점수 입력"이 가능하도록 잠금 완전 해제!
     is_score_locked = True if is_tournament_finished else False
     is_ui_disabled = is_game_started or is_tournament_finished
 
@@ -119,7 +131,7 @@ def run_tab_play(get_db_connection):
     # 상단 실시간 동기화 버튼 유지
     c_status, c_refresh = st.columns([6, 1])
     with c_status:
-        st.caption("💡 스마트폰 화면에 점수가 안 보인다면 우측 새로고침 버튼을 누르세요.")
+        st.caption("💡 다른 사용자가 입력한 점수가 안 보인다면 우측 새로고침 버튼을 누르세요.")
     with c_refresh:
         if st.button("🔄 화면 새로고침", use_container_width=True):
             st.rerun()
@@ -185,10 +197,11 @@ def run_tab_play(get_db_connection):
                 db_p1_id, db_p2_id = (p1['id'], p2['id']) if p1['id'] < p2['id'] else (p2['id'], p1['id'])
                 score_key = (group_idx, db_p1_id, db_p2_id)
 
-                # 🚀 정수형 튜플 바인딩 대입
+                # 통일된 정렬 순서에 입각하여 안전하게 튜플 추출
                 saved_tuple = db_scores.get(score_key, (0, 0))
                 s1_saved, s2_saved = saved_tuple
 
+                # UI상 표시되는 선수의 위치(p1, p2)에 맞게 올바르게 스왑 매핑
                 v1, v2 = (s1_saved, s2_saved) if db_p1_id == p1['id'] else (s2_saved, s1_saved)
                 is_match_recorded = (v1 == 3 or v2 == 3)
 
@@ -219,7 +232,6 @@ def run_tab_play(get_db_connection):
                         elif sc1 != 3 and sc2 != 3:
                             st.error("⚠️ 세트 종료 기준 미달 (3점 선취 필요)")
                         else:
-                            # 🚀 문자열이 아닌 정수 컬럼에 타겟 매핑하여 UPSERT 처리
                             f_p1_sc = sc1 if p1['id'] == db_p1_id else sc2
                             f_p2_sc = sc2 if p1['id'] == db_p1_id else sc1
 
@@ -526,6 +538,7 @@ def run_tab_play(get_db_connection):
                                 st.success("🎉 대회가 마감되었습니다! 이제 모든 회원 화면이 완성된 결과로 영구 고정됩니다.")
                                 st.rerun()
                             except Exception as e:
+                                r_level, round_title = None, None
                                 st.error(f"마감 처리 실패: {e}")
 
                     if all_league_stats:
