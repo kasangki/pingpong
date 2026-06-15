@@ -154,7 +154,7 @@ def run_tab_manage(get_db_connection):
             st.form_submit_button("🔒 마감된 대회는 변경할 수 없습니다", disabled=True, use_container_width=True)
 
     # ==========================================
-    # 💾 3 구역: 데이터 독립 및 안전 백업 센터 (오류 수정 완료)
+    # 💾 3 구역: 데이터 독립 및 안전 백업 센터 (updated_at -> created_at 전면 교체 완료)
     # ==========================================
     st.markdown("<br>", unsafe_allow_html=True)
     st.subheader("💾 Neon 클라우드 로컬 백업 센터")
@@ -195,7 +195,7 @@ def run_tab_manage(get_db_connection):
 
             with bc3:
                 # 💡 [오류 수정 핵심 포인트]
-                # 존재하지 않는 mr.match_status 컬럼을 제거하고, 대신 스코어 유무(SUM)로 경기 상태를 가상 연산 처리했습니다.
+                # mr.updated_at -> mr.created_at 으로 테이블 컬럼 실재 주소 매핑을 완벽히 동기화했습니다.
                 query_match_hd = """
                     SELECT 
                         t.title AS "대회명",
@@ -214,7 +214,7 @@ def run_tab_manage(get_db_connection):
                             WHEN (mr.player1_score > 0 OR mr.player2_score > 0) THEN '🏆 경기종료'
                             ELSE '🎮 대기/진행중'
                         END AS "경기상태",
-                        mr.updated_at AS "최종입력시간"
+                        mr.created_at AS "최종입력시간"
                     FROM match_results mr
                     JOIN tournaments t ON mr.tournament_id = t.id
                     LEFT JOIN members m1 ON mr.player1_id = m1.id
