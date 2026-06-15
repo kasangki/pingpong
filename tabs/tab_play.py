@@ -9,7 +9,7 @@ def get_style():
     <style>
     html, body, [data-testid="stMarkdownContainer"] p { font-size: 17px !important; line-height: 1.6; }
 
-    /* 예선 리그전 입력창 글자 크기 및 레이아웃 확대 */
+    /* 입력창 및 레이아웃 확대 */
     .match-row-num { margin-top: 10px; color: #94A3B8; font-weight: bold; font-size: 17px; }
     .player-box-p1 { background-color: #1E1B4B; padding: 10px; text-align: center; border-radius: 8px; font-size: 20px !important; font-weight: 800; color: #C7D2FE; border: 1px solid #4338CA; }
     .player-box-p2 { background-color: #064E3B; padding: 10px; text-align: center; border-radius: 8px; font-size: 20px !important; font-weight: 800; color: #A7F3D0; border: 1px solid #059669; }
@@ -74,12 +74,10 @@ def run_tab_play(get_db_connection):
         st.warning("개설된 대회가 없습니다. 관리자가 대회를 먼저 생성해야 합니다.")
         return
 
-    # 대진 데이터 정렬 딕셔너리 매핑
     tour_dict_list = df_active_t.to_dict('records')
     active_tour = st.selectbox("진행할 대회를 선택하세요", tour_dict_list, format_func=lambda
         x: f"{x['title']} [{'🏆 완료됨' if x['status'] == 'finished' else '🎮 진행중'}]")
 
-    # 현재 선택된 대회의 실제 DB 마스터 상태 확인
     current_tour_status = active_tour['status']
 
     try:
@@ -87,8 +85,10 @@ def run_tab_play(get_db_connection):
         df_players = pd.read_sql(
             f"SELECT m.id, m.name, m.grade FROM tournament_players tp JOIN members m ON tp.member_id = m.id WHERE tp.tournament_id = {active_tour['id']} AND m.club_id = {club_id} ORDER BY m.id ASC",
             conn)
+
+        # 🚀 [DB 구조 혁신] score_text 대신 분리된 정수형 칼럼을 곧바로 패치
         df_saved_matches = pd.read_sql(
-            f"SELECT group_idx, player1_id, player2_id, score_text FROM match_results WHERE tournament_id = {active_tour['id']}",
+            f"SELECT group_idx, player1_id, player2_id, player1_score, player2_score FROM match_results WHERE tournament_id = {active_tour['id']}",
             conn)
         conn.close()
     except:
@@ -98,32 +98,31 @@ def run_tab_play(get_db_connection):
         st.info("출전 선수가 부족합니다. (최소 2명 필요)")
         return
 
+    # 🚀 메모리 딕셔너리 구조 개편: (조인덱스, p1_id, p2_id) -> (player1_score, player2_score)
     db_scores = {}
     for _, row in df_saved_matches.iterrows():
-        db_scores[(int(row['group_idx']), int(row['player1_id']), int(row['player2_id']))] = row['score_text']
+        db_scores[(int(row['group_idx']), int(row['player1_id']), int(row['player2_id']))] = (
+        int(row['player1_score']), int(row['player2_score']))
 
     is_game_started = len(db_scores) > 0
-
-    # 💡 [SaaS 전용 규칙 연동] 관리자가 강제로 종료버튼을 눌렀거나 결승 스코어가 찬 경우
     is_tournament_finished = (current_tour_status == 'finished')
 
-    # 자물쇠 잠금 조건 고도화
-    is_score_locked = True if st.session_state.user_role != "admin" or is_tournament_finished else False
+    # 👑 [권한 자물쇠 개방] 관리자가 강제로 마감('finished')하기 전까지는 일반회원도 "누구나 점수 입력"이 가능하도록 잠금 완전 해제!
+    is_score_locked = True if is_tournament_finished else False
     is_ui_disabled = is_game_started or is_tournament_finished
 
     if is_tournament_finished:
-        st.success("🏆 이 대회는 관리자에 의해 최종 종료(마감) 처리되었습니다. 성적 변경이 제한됩니다.")
-    elif is_game_started and st.session_state.user_role == "admin":
-        st.info("📊 현재 경기가 진행 중이므로 경기 방식 및 조 갯수 설정이 고정되었습니다.")
+        st.success("🏆 이 대회는 관리자에 의해 최종 종료(마감) 처리되었습니다. 성적 변경이 불가능합니다.")
+    else:
+        st.info("📢 점수 기록 모드: 모든 회원이 본인 혹은 타인의 조 경기를 자유롭게 기록해 줄 수 있습니다.")
 
-    # 🛠️ 일반 회원용 관전 새로고침 컨트롤러 바
-    if st.session_state.user_role != "admin":
-        c_status, c_refresh = st.columns([6, 1])
-        with c_status:
-            st.caption("📢 일반회원 모드: 운영진이 실시간 입력하는 점수판을 관전 중입니다.")
-        with c_refresh:
-            if st.button("🔄 실시간 점수 새로고침", use_container_width=True):
-                st.rerun()
+    # 상단 실시간 동기화 버튼 유지
+    c_status, c_refresh = st.columns([6, 1])
+    with c_status:
+        st.caption("💡 스마트폰 화면에 점수가 안 보인다면 우측 새로고침 버튼을 누르세요.")
+    with c_refresh:
+        if st.button("🔄 화면 새로고침", use_container_width=True):
+            st.rerun()
 
     col_method, col_group_num = st.columns([2, 1])
     with col_method:
@@ -185,15 +184,13 @@ def run_tab_play(get_db_connection):
             for idx, (p1, p2) in enumerate(round_matches):
                 db_p1_id, db_p2_id = (p1['id'], p2['id']) if p1['id'] < p2['id'] else (p2['id'], p1['id'])
                 score_key = (group_idx, db_p1_id, db_p2_id)
-                saved_score = db_scores.get(score_key, "0:0")
 
-                v1, v2 = 0, 0
-                is_match_recorded = False
-                if ":" in saved_score:
-                    s1, s2 = saved_score.split(":")
-                    v1, v2 = (int(s1), int(s2)) if db_p1_id == p1['id'] else (int(s2), int(s1))
-                    if v1 == 3 or v2 == 3:
-                        is_match_recorded = True
+                # 🚀 정수형 튜플 바인딩 대입
+                saved_tuple = db_scores.get(score_key, (0, 0))
+                s1_saved, s2_saved = saved_tuple
+
+                v1, v2 = (s1_saved, s2_saved) if db_p1_id == p1['id'] else (s2_saved, s1_saved)
+                is_match_recorded = (v1 == 3 or v2 == 3)
 
                 c_num, c_p1, c_s1, c_vs, c_s2, c_p2, c_btn = st.columns([0.8, 2.3, 0.9, 0.3, 0.9, 2.3, 1.5])
                 with c_num:
@@ -222,19 +219,22 @@ def run_tab_play(get_db_connection):
                         elif sc1 != 3 and sc2 != 3:
                             st.error("⚠️ 세트 종료 기준 미달 (3점 선취 필요)")
                         else:
-                            final_score = f"{sc1}:{sc2}" if p1['id'] == db_p1_id else f"{sc2}:{sc1}"
+                            # 🚀 문자열이 아닌 정수 컬럼에 타겟 매핑하여 UPSERT 처리
+                            f_p1_sc = sc1 if p1['id'] == db_p1_id else sc2
+                            f_p2_sc = sc2 if p1['id'] == db_p1_id else sc1
+
                             conn = get_db_connection()
                             cur = conn.cursor()
                             cur.execute("""
-                                INSERT INTO match_results (tournament_id, group_idx, match_order, player1_id, player2_id, score_text) 
-                                VALUES (%s,%s,%s,%s,%s,%s) 
+                                INSERT INTO match_results (tournament_id, group_idx, match_order, player1_id, player2_id, player1_score, player2_score) 
+                                VALUES (%s,%s,%s,%s,%s,%s,%s) 
                                 ON CONFLICT (tournament_id, group_idx, player1_id, player2_id) 
-                                DO UPDATE SET score_text = EXCLUDED.score_text
-                            """, (active_tour['id'], group_idx, idx + 1, db_p1_id, db_p2_id, final_score))
+                                DO UPDATE SET player1_score = EXCLUDED.player1_score, player2_score = EXCLUDED.player2_score
+                            """, (active_tour['id'], group_idx, idx + 1, db_p1_id, db_p2_id, f_p1_sc, f_p2_sc))
                             conn.commit()
                             cur.close()
                             conn.close()
-                            st.success(f"✅ {idx + 1}경기 결과({final_score})가 기록되었습니다!")
+                            st.success(f"✅ {idx + 1}경기 결과가 성공적으로 보존되었습니다!")
                             st.rerun()
 
             rank_stats = []
@@ -243,9 +243,11 @@ def run_tab_play(get_db_connection):
                 for opp in group_players:
                     if p['id'] == opp['id']: continue
                     r1_id, r2_id = (p['id'], opp['id']) if p['id'] < opp['id'] else (opp['id'], p['id'])
-                    score = db_scores.get((group_idx, r1_id, r2_id), "")
-                    if ":" in score:
-                        s1, s2 = map(int, score.split(":"))
+
+                    saved_tuple = db_scores.get((group_idx, r1_id, r2_id), (0, 0))
+                    s1, s2 = saved_tuple
+
+                    if s1 != 0 or s2 != 0:
                         p_score = s1 if p['id'] == r1_id else s2
                         opp_score = s2 if p['id'] == r1_id else s1
                         set_gain += p_score
@@ -264,17 +266,16 @@ def run_tab_play(get_db_connection):
                     if rank_stats[i]["승"] == rank_stats[j]["승"] and rank_stats[i]["득실차"] == rank_stats[j]["득실차"]:
                         p1_id, p2_id = rank_stats[i]["id"], rank_stats[j]["id"]
                         r1_id, r2_id = (p1_id, p2_id) if p1_id < p2_id else (p2_id, p1_id)
-                        score = db_scores.get((group_idx, r1_id, r2_id), "")
-                        if ":" in score:
-                            s1, s2 = map(int, score.split(":"))
+
+                        s1, s2 = db_scores.get((group_idx, r1_id, r2_id), (0, 0))
+                        if s1 != 0 or s2 != 0:
                             if (p1_id == r1_id and s1 > s2) or (p1_id == r2_id and s2 > s1):
                                 h2h_bonus += 0.1
                 rank_stats[i]["승자승점수"] = rank_stats[i]["득실차"] + h2h_bonus
 
             rank_stats_sorted = sorted(rank_stats, key=lambda x: (x["승"], x["승자승점수"]), reverse=True)
 
-            st.markdown(f"<p class='rank-title'>📊 {group_idx + 1}조 리그전 현재 순위 등수표 (다승 및 세트득실 정렬)</p>",
-                        unsafe_allow_html=True)
+            st.markdown(f"<p class='rank-title'>📊 {group_idx + 1}조 리그전 현재 순위 등수표</p>", unsafe_allow_html=True)
             if f"manual_rank_{active_tour['id']}_{group_idx}" not in st.session_state:
                 st.session_state[f"manual_rank_{active_tour['id']}_{group_idx}"] = {}
             m_ranks = st.session_state[f"manual_rank_{active_tour['id']}_{group_idx}"]
@@ -408,31 +409,29 @@ def run_tab_play(get_db_connection):
                 db_p1_id, db_p2_id = (p1['id'], p2['id']) if p1['id'] < p2['id'] else (p2['id'], p1['id'])
                 g_code = 900 + round_level
                 score_key = (g_code, db_p1_id, db_p2_id)
-                saved_score = db_scores.get(score_key, "0:0")
 
-                v1, v2 = 0, 0
-                is_recorded = False
-                if score_key in db_scores:
-                    s1, s2 = saved_score.split(":")
-                    v1, v2 = (int(s1), int(s2)) if db_p1_id == p1['id'] else (int(s2), int(s1))
-                    if v1 != 0 or v2 != 0:
-                        is_recorded = True
-                        winner = p1 if v1 > v2 else p2
-                        loser = p2 if v1 > v2 else p1
-                        next_round_players.append(winner)
+                s1_t_saved, s2_t_saved = db_scores.get(score_key, (0, 0))
 
-                        if loser['id'] in all_league_stats:
-                            all_league_stats[loser['id']]["진출단계점수"] = round_level * 1000
-                            all_league_stats[loser['id']]["탈락라운드텍스트"] = f"본선 {p_count}강 탈락"
+                v1, v2 = (s1_t_saved, s2_t_saved) if db_p1_id == p1['id'] else (s2_t_saved, s1_t_saved)
+                is_recorded = (v1 == 3 or v2 == 3)
 
-                        if p_count == 2:
-                            final_ranks_dict["우승 (1위)"] = f"{winner['name']} ({winner['grade']}부)"
-                            final_ranks_dict["준우승 (2위)"] = f"{loser['name']} ({loser['grade']}부)"
-                            tournament_passed_ids.add(winner['id'])
-                            tournament_passed_ids.add(loser['id'])
-                        elif p_count == 4:
-                            final_ranks_dict["공동 3위"].append(f"{loser['name']} ({loser['grade']}부)")
-                            tournament_passed_ids.add(loser['id'])
+                if is_recorded:
+                    winner = p1 if v1 > v2 else p2
+                    loser = p2 if v1 > v2 else p1
+                    next_round_players.append(winner)
+
+                    if loser['id'] in all_league_stats:
+                        all_league_stats[loser['id']]["진출단계점수"] = round_level * 1000
+                        all_league_stats[loser['id']]["탈락라운드텍스트"] = f"본선 {p_count}강 탈락"
+
+                    if p_count == 2:
+                        final_ranks_dict["우승 (1위)"] = f"{winner['name']} ({winner['grade']}부)"
+                        final_ranks_dict["준우승 (2위)"] = f"{loser['name']} ({loser['grade']}부)"
+                        tournament_passed_ids.add(winner['id'])
+                        tournament_passed_ids.add(loser['id'])
+                    elif p_count == 4:
+                        final_ranks_dict["공동 3위"].append(f"{loser['name']} ({loser['grade']}부)")
+                        tournament_passed_ids.add(loser['id'])
 
                 if not is_recorded:
                     round_all_clear = False
@@ -474,19 +473,21 @@ def run_tab_play(get_db_connection):
                         elif sc1 != 3 and sc2 != 3:
                             st.error("⚠️ 한 명은 반드시 3점승이어야 합니다.")
                         else:
-                            final_score = f"{sc1}:{sc2}" if p1['id'] == db_p1_id else f"{sc2}:{sc1}"
+                            f_t_p1 = sc1 if p1['id'] == db_p1_id else sc2
+                            f_t_p2 = sc2 if p1['id'] == db_p1_id else sc1
+
                             conn = get_db_connection()
                             cur = conn.cursor()
                             cur.execute("""
-                                INSERT INTO match_results (tournament_id, group_idx, match_order, player1_id, player2_id, score_text) 
-                                VALUES (%s,%s,%s,%s,%s,%s) 
+                                INSERT INTO match_results (tournament_id, group_idx, match_order, player1_id, player2_id, player1_score, player2_score) 
+                                VALUES (%s,%s,%s,%s,%s,%s,%s) 
                                 ON CONFLICT (tournament_id, group_idx, player1_id, player2_id) 
-                                DO UPDATE SET score_text = EXCLUDED.score_text
-                            """, (active_tour['id'], g_code, idx + 1, db_p1_id, db_p2_id, final_score))
+                                DO UPDATE SET player1_score = EXCLUDED.player1_score, player2_score = EXCLUDED.player2_score
+                            """, (active_tour['id'], g_code, idx + 1, db_p1_id, db_p2_id, f_t_p1, f_t_p2))
                             conn.commit()
                             cur.close()
                             conn.close()
-                            st.success(f"🎉 본선 매치 결과({final_score}) 저장 성공!")
+                            st.success(f"🎉 본선 매치 결과 저장 성공!")
                             st.rerun()
 
             if p_count == 2 and round_all_clear and any_valid_match:
@@ -494,7 +495,6 @@ def run_tab_play(get_db_connection):
                     st.markdown("---")
                     st.subheader("🏅 본선 토너먼트 최종 종합 순위 결과")
 
-                    # 💡 [버그 교정 완료] c_tr1 중첩 오타를 수정하고 c_tr2에 독립 배치하여 뒤죽박죽 꼬임 현상 해결
                     c_tr1, c_tr2, c_tr3 = st.columns(3)
                     with c_tr1:
                         st.markdown(
@@ -510,9 +510,7 @@ def run_tab_play(get_db_connection):
                             f"<div style='background-color:#451A03; padding:18px; border-radius:10px; text-align:center; border:2px solid #F97316;'><h4>🥉 공동 3위</h4><h3 style='color:#FB923C; margin-top:8px;'>{th3_players}</h3></div>",
                             unsafe_allow_html=True)
 
-                    # -------------------------------------------------------------
-                    # 👑 [신규 추가] 관리자 전용 최종 대회 마감 기능
-                    # -------------------------------------------------------------
+                    # 관리자용 최종 마감 셔터 버튼
                     if st.session_state.user_role == "admin" and not is_tournament_finished:
                         st.markdown("<br>", unsafe_allow_html=True)
                         if st.button("🏆 본 대회 최종 마감 및 종료하기 (수정 권한 영구 자물쇠)", use_container_width=True, type="primary"):
@@ -525,7 +523,7 @@ def run_tab_play(get_db_connection):
                                 cur.close()
                                 conn.close()
                                 st.balloons()
-                                st.success("🎉 대회가 성공적으로 마감되었습니다! 이제 모든 회원 화면이 완성된 결과로 영구 고정됩니다.")
+                                st.success("🎉 대회가 마감되었습니다! 이제 모든 회원 화면이 완성된 결과로 영구 고정됩니다.")
                                 st.rerun()
                             except Exception as e:
                                 st.error(f"마감 처리 실패: {e}")
