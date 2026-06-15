@@ -101,7 +101,7 @@ def run_tab_play(get_db_connection):
         st.info("출전 선수가 부족합니다. (최소 2명 필요)")
         return
 
-    # ID 대소 비교 기반 완정 정합성 딕셔너리 빌드
+    # ID 정렬 기준 매핑 데이터
     db_scores = {}
     for _, row in df_saved_matches.iterrows():
         g_idx = int(row['group_idx'])
@@ -204,8 +204,16 @@ def run_tab_play(get_db_connection):
 
                 is_match_recorded = (v1 == 3 or v2 == 3)
 
-                # 🚀 [버그 원천 해결 패치]
-                # 각 행마다 독립적인 폼 패키징을 선언하여, 내가 누르지 않은 다른 0:0 입력창의 잔상 데이터가 DB로 흘러 들어가지 않도록 완벽 격리!
+                # 🚀 [임시 상태 리셋 원천 차단 알고리즘 도입]
+                # 스핀박스 입력창의 고유 ID 키 발급 및 세션 캐싱 완전 격리
+                key_s1 = f"s1_val_{active_tour['id']}_{group_idx}_{idx}"
+                key_s2 = f"s2_val_{active_tour['id']}_{group_idx}_{idx}"
+
+                if key_s1 not in st.session_state:
+                    st.session_state[key_s1] = v1
+                if key_s2 not in st.session_state:
+                    st.session_state[key_s2] = v2
+
                 with st.container():
                     c_num, c_p1, c_s1, c_vs, c_s2, c_p2, c_btn = st.columns([0.8, 2.3, 0.9, 0.3, 0.9, 2.3, 1.5])
                     with c_num:
@@ -213,14 +221,12 @@ def run_tab_play(get_db_connection):
                     with c_p1:
                         st.markdown(f"<div class='player-box-p1'>{p1['name']}</div>", unsafe_allow_html=True)
                     with c_s1:
-                        sc1 = st.number_input("🔹", min_value=0, max_value=3, value=v1, step=1,
-                                              key=f"s1_{group_idx}_{idx}",
+                        sc1 = st.number_input("🔹", min_value=0, max_value=3, key=key_s1,
                                               label_visibility="collapsed", disabled=is_score_locked)
                     with c_vs:
                         st.markdown("<div class='vs-divider'>:</div>", unsafe_allow_html=True)
                     with c_s2:
-                        sc2 = st.number_input("🔸", min_value=0, max_value=3, value=v2, step=1,
-                                              key=f"s2_{group_idx}_{idx}",
+                        sc2 = st.number_input("🔸", min_value=0, max_value=3, key=key_s2,
                                               label_visibility="collapsed", disabled=is_score_locked)
                     with c_p2:
                         st.markdown(f"<div class='player-box-p2'>{p2['name']}</div>", unsafe_allow_html=True)
@@ -456,6 +462,15 @@ def run_tab_play(get_db_connection):
                 if not is_recorded:
                     round_all_clear = False
 
+                # 토너먼트용 격리 키 발급
+                key_t1 = f"t1_val_{active_tour['id']}_{round_level}_{idx}"
+                key_t2 = f"t2_val_{active_tour['id']}_{round_level}_{idx}"
+
+                if key_t1 not in st.session_state:
+                    st.session_state[key_t1] = v1
+                if key_t2 not in st.session_state:
+                    st.session_state[key_t2] = v2
+
                 with st.container():
                     c_m, c_p1, c_s1, c_vs, c_s2, c_p2, c_save = st.columns([1.0, 2.3, 1.1, 0.4, 1.1, 2.3, 1.5])
                     with c_m:
@@ -467,16 +482,14 @@ def run_tab_play(get_db_connection):
                             f"<div style='background-color:#064E3B; padding:10px; text-align:center; border-radius:8px; font-size:18px; color:#A7F3D0; border:1px solid #059669;'><b>{p1['name']}</b> <span style='font-size:13px; color:#94A3B8;'>({p1['grade']}부)</span></div>",
                             unsafe_allow_html=True)
                     with c_s1:
-                        sc1 = st.number_input("🔹", min_value=0, max_value=3, value=v1, step=1,
-                                              key=f"t1_{round_level}_{idx}", label_visibility="collapsed",
+                        sc1 = st.number_input("🔹", min_value=0, max_value=3, key=key_t1, label_visibility="collapsed",
                                               disabled=is_score_locked)
                     with c_vs:
                         st.markdown(
                             "<div style='text-align:center; padding-top:8px; font-weight:bold; font-size:18px;'>:</div>",
                             unsafe_allow_html=True)
                     with c_s2:
-                        sc2 = st.number_input("🔸", min_value=0, max_value=3, value=v2, step=1,
-                                              key=f"t2_{round_level}_{idx}", label_visibility="collapsed",
+                        sc2 = st.number_input("🔸", min_value=0, max_value=3, key=key_t2, label_visibility="collapsed",
                                               disabled=is_score_locked)
                     with c_p2:
                         st.markdown(
@@ -492,7 +505,7 @@ def run_tab_play(get_db_connection):
                             if sc1 == 3 and sc2 == 3:
                                 st.error("⚠️ 3:3 동점은 저장할 수 없습니다.")
                             elif sc1 != 3 and sc2 != 3:
-                                st.error("⚠️ 한 명은 반드시 3점승이어야 합니다.")
+                                East.error("⚠️ 한 명은 반드시 3점승이어야 합니다.")
                             else:
                                 f_t_p1 = sc1 if p1['id'] == db_p1_id else sc2
                                 f_t_p2 = sc2 if p1['id'] == db_p1_id else sc1
