@@ -81,7 +81,6 @@ def run_tab_play(get_db_connection):
         x: f"{x['title']} [{'🏆 완료됨' if x['status'] == 'finished' else '🎮 진행중'}]")
     current_tour_status = active_tour['status']
 
-    # 💡 [마감 락 플래그] 대회가 종료되면 실시간 자동새로고침을 멈춥니다.
     is_tournament_finished = (current_tour_status == 'finished')
     if not is_tournament_finished:
         st_autorefresh(interval=60000, key="play_tab_refresh")
@@ -107,6 +106,9 @@ def run_tab_play(get_db_connection):
         st.info("출전 선수가 부족합니다. (최소 2명 필요)")
         return
 
+    # 💡 [핵심 보정]: 스코어 유무와 관계없이 DB에 이 대회 대진표 레코드가 존재하는지 순수 확인
+    is_game_started = not df_saved_matches.empty
+
     db_scores = {}
     for _, row in df_saved_matches.iterrows():
         g_idx = int(row['group_idx'])
@@ -120,7 +122,6 @@ def run_tab_play(get_db_connection):
         else:
             db_scores[(g_idx, p2_id, p1_id)] = (p2_sc, p1_sc)
 
-    is_game_started = len(db_scores) > 0
     is_score_locked = True if is_tournament_finished else False
     is_ui_disabled = is_game_started or is_tournament_finished
 
@@ -148,27 +149,26 @@ def run_tab_play(get_db_connection):
         )
     with col_group_num:
         if game_method in ["라운드로빈(풀리그)", "혼합 방식 (리그 후 토너먼트)"]:
-            # 이론상 선수가 완전히 불려왔을 때의 기본 상한선 계산
             max_groups = max(1, len(df_players) // 2)
 
-            # 💡 [SaaS 무결점 패치]: DB에 이미 저장된 실제 경기 조 번호를 역추적합니다.
+            # 💡 [결정적 버그 해결 패치]: db_scores 딕셔너리 대신 원본 df_saved_matches 데이터프레임에서 직접 
+            # 예선 조 인덱스(900 미만)를 발굴해 조 갯수를 원천 복구합니다. 스코어가 전부 0점이어도 완벽히 잡아냅니다.
             if is_game_started:
-                recorded_group_indices = [k[0] for k in db_scores.keys() if k[0] < 900]
-                if recorded_group_indices:
+                recorded_group_indices = df_saved_matches[df_saved_matches['group_idx'] < 900]['group_idx'].unique()
+                if len(recorded_group_indices) > 0:
                     default_g_value = max(recorded_group_indices) + 1
                 else:
                     default_g_value = 2 if max_groups >= 2 else 1
             else:
                 default_g_value = 2 if max_groups >= 2 else 1
 
-            # 💡 [버그 격파 핵심]: 위젯이 로딩 편차로 인해 스스로 값을 깎아내리지 못하도록
-            # max_value 상한선을 선수 기준, DB 기록 기준, 마진(30) 중 가장 큰 값으로 개방합니다.
+            # 위젯 상한선 최소 30으로 완전 개방하여 리셋 오류 원천 차단
             absolute_max_limit = max(max_groups, default_g_value, 30)
 
             num_groups = st.number_input(
                 "📋 생성할 조(Group) 갯수",
                 min_value=1,
-                max_value=int(absolute_max_limit),  # 👈 상한선을 넉넉하게 열어 위젯의 리셋을 완벽 방어!
+                max_value=int(absolute_max_limit),
                 value=int(default_g_value),
                 step=1,
                 disabled=is_ui_disabled
@@ -279,7 +279,7 @@ def run_tab_play(get_db_connection):
                                 st.success(f"✅ 경기 결과가 안전하게 반영되었습니다!")
                                 st.rerun()
 
-            # 📊 1단계: 기본 성적 집계 (승, 세트득실차)
+            # 📊 기본 성적 집계
             rank_stats = []
             for p in group_players:
                 wins, set_gain, set_loss = 0, 0, 0
@@ -302,7 +302,6 @@ def run_tab_play(get_db_connection):
                     "승": wins, "득실차": (set_gain - set_loss), "승자승점수": 0.0
                 })
 
-            # 📊 2단계: 승수와 득실차가 모두 같을 때 작동하는 정밀 3순위 '승자승(H2H)' 알고리즘
             for i in range(len(rank_stats)):
                 h2h_bonus = 0
                 for j in range(len(rank_stats)):
@@ -317,10 +316,8 @@ def run_tab_play(get_db_connection):
                                 h2h_bonus += 0.1
                 rank_stats[i]["승자승점수"] = h2h_bonus
 
-            # 🚀 자동 정렬 축 고정
             rank_stats_sorted = sorted(rank_stats, key=lambda x: (x["승"], x["득실차"], x["승자승점수"]), reverse=True)
 
-            # 공동 순위(동률) 처리 맵 빌드
             computed_ranks = {}
             current_rank = 1
             for idx, stat in enumerate(rank_stats_sorted):
@@ -348,7 +345,6 @@ def run_tab_play(get_db_connection):
 
             render_list = sorted(render_list, key=lambda x: x["rank"])
 
-            # 🌟 2. 각 조 리그 순위표 헤더 옆에 새로고침 배치
             c_title, c_ref = st.columns([5.5, 1.5])
             with c_title:
                 st.markdown(f"<p class='rank-title'>📊 {group_idx + 1}조 리그전 실시간 순위 등수표</p>", unsafe_allow_html=True)
@@ -380,7 +376,6 @@ def run_tab_play(get_db_connection):
                     all_league_stats[item['id']]["승"] = item['승']
                     all_league_stats[item['id']]["득실차"] = item['득실차']
 
-            # 💡 [핵심 패치] 대회가 종료(마감) 상태이면 수동 미세 조정 패널 자체를 잠금(Disabled) 처리합니다.
             with st.expander(f"🛠️ {group_idx + 1}조 순위 강제 미세 조정 및 동률 파괴 제어판"):
                 if is_score_locked:
                     st.caption("🔒 대회가 마감되어 순위 강제 조정 기능이 잠겼습니다.")
@@ -391,7 +386,7 @@ def run_tab_play(get_db_connection):
                         f"🔺 {item['name']} 강제 등수 설정",
                         min_value=1, max_value=len(group_players), value=int(current_saved), step=1,
                         key=f"adjust_{group_idx}_{p_id}",
-                        disabled=is_score_locked  # 락 반영
+                        disabled=is_score_locked
                     )
                     if not is_score_locked and new_val != current_saved:
                         m_ranks[p_id] = new_val
@@ -431,7 +426,6 @@ def run_tab_play(get_db_connection):
     # ==========================================
     if (game_method == "토너먼트" or game_method == "혼합 방식 (리그 후 토너먼트)") and len(final_pool) >= 2:
 
-        # 🌟 3. 본선 토너먼트 대진표 헤더 옆에도 즉시 새로고침 배치
         c_tour_title, c_tour_ref = st.columns([5.5, 1.5])
         with c_tour_title:
             st.header("🏆 본선 토너먼트 매치 대진표")
