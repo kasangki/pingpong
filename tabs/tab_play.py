@@ -149,13 +149,24 @@ def run_tab_play(get_db_connection):
     with col_group_num:
         if game_method in ["라운드로빈(풀리그)", "혼합 방식 (리그 후 토너먼트)"]:
             max_groups = max(1, len(df_players) // 2)
-            default_g_value = 2 if max_groups >= 2 else 1
+
+            # 💡 [치명적 버그 원천 봉쇄 패치]:
+            # 경기가 시작되어 세션이 잠겼을 때, 코드의 임시 기본값(2) 대신
+            # 실제 DB(db_scores)에 저장되어 있던 조 인덱스의 최댓값을 찾아 조 개수 유실을 완벽히 방지합니다.
+            if is_game_started:
+                recorded_group_indices = [k[0] for k in db_scores.keys() if k[0] < 900]
+                if recorded_group_indices:
+                    default_g_value = max(recorded_group_indices) + 1
+                else:
+                    default_g_value = 2 if max_groups >= 2 else 1
+            else:
+                default_g_value = 2 if max_groups >= 2 else 1
 
             num_groups = st.number_input(
                 "📋 생성할 조(Group) 갯수",
                 min_value=1,
-                max_value=max_groups,
-                value=default_g_value,
+                max_value=max(max_groups, default_g_value),  # 가공된 보정치가 상한선을 침범하지 못하도록 바인딩
+                value=int(default_g_value),
                 step=1,
                 disabled=is_ui_disabled
             )
