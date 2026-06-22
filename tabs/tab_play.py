@@ -84,8 +84,8 @@ def run_tab_play(get_db_connection):
     is_tournament_finished = (current_tour_status == 'finished')
 
     # 💡 [요청 사항 반영]: 자동 새로고침 주기를 60초에서 120,000ms(2분)으로 전격 연장
-    if not is_tournament_finished:
-        st_autorefresh(interval=120000, key="play_tab_refresh")
+    #if not is_tournament_finished:
+     #   st_autorefresh(interval=120000, key="play_tab_refresh")
 
     try:
         conn = get_db_connection()
