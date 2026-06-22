@@ -66,7 +66,7 @@ def run_tab_play(get_db_connection):
 
     try:
         conn = get_db_connection()
-        query_t = "SELECT id, title, status FROM tournaments WHERE club_id = %s AND deleted_at IS NULL ORDER BY id DESC"
+        query_t = "SELECT id, title, status, COALESCE(group_count, 2) as group_count FROM tournaments WHERE club_id = %s AND deleted_at IS NULL ORDER BY id DESC"
         df_active_t = pd.read_sql(query_t, conn, params=(club_id,))
         conn.close()
     except:
@@ -102,14 +102,14 @@ def run_tab_play(get_db_connection):
     except:
         df_players, df_saved_matches = pd.DataFrame(), pd.DataFrame()
 
-    if len(df_players) < 2:
-        st.info("출전 선수가 부족합니다. (최소 2명 필요)")
-        return
-
-    # 💡 [핵심 보정]: 스코어 유무와 관계없이 DB에 이 대회 대진표 레코드가 존재하는지 순수 확인
-    is_game_started = not df_saved_matches.empty
+    if df_players.empty:
+        player_list = []
+    else:
+        player_list = df_players.to_dict('records')
 
     db_scores = {}
+    actual_recorded_match_count = 0
+
     for _, row in df_saved_matches.iterrows():
         g_idx = int(row['group_idx'])
         p1_id = int(row['player1_id'])
@@ -117,11 +117,15 @@ def run_tab_play(get_db_connection):
         p1_sc = int(row['player1_score'])
         p2_sc = int(row['player2_score'])
 
+        if p1_sc > 0 or p2_sc > 0:
+            actual_recorded_match_count += 1
+
         if p1_id < p2_id:
             db_scores[(g_idx, p1_id, p2_id)] = (p1_sc, p2_sc)
         else:
             db_scores[(g_idx, p2_id, p1_id)] = (p2_sc, p1_sc)
 
+    is_game_started = actual_recorded_match_count > 0
     is_score_locked = True if is_tournament_finished else False
     is_ui_disabled = is_game_started or is_tournament_finished
 
@@ -130,7 +134,6 @@ def run_tab_play(get_db_connection):
     else:
         st.info("📢 전광판 모드 활성화: 60초 주기로 다른 태블릿의 경기 점수가 화면에 실시간 자동 동기화됩니다.")
 
-    # 1. 최상단 즉시 새로고침
     c_status, c_refresh = st.columns([5.5, 1.5])
     with c_status:
         st.caption("💡 다른 태블릿이 입력한 점수를 즉시 땡겨오려면 우측 버튼을 누르세요.")
@@ -147,32 +150,45 @@ def run_tab_play(get_db_connection):
             horizontal=True,
             disabled=is_ui_disabled
         )
+
     with col_group_num:
         if game_method in ["라운드로빈(풀리그)", "혼합 방식 (리그 후 토너먼트)"]:
-            max_groups = max(1, len(df_players) // 2)
+            max_groups = max(1, len(player_list) // 2) if player_list else 2
 
-            # 💡 [결정적 버그 해결 패치]: db_scores 딕셔너리 대신 원본 df_saved_matches 데이터프레임에서 직접 
-            # 예선 조 인덱스(900 미만)를 발굴해 조 갯수를 원천 복구합니다. 스코어가 전부 0점이어도 완벽히 잡아냅니다.
-            if is_game_started:
-                recorded_group_indices = df_saved_matches[df_saved_matches['group_idx'] < 900]['group_idx'].unique()
-                if len(recorded_group_indices) > 0:
-                    default_g_value = max(recorded_group_indices) + 1
-                else:
-                    default_g_value = 2 if max_groups >= 2 else 1
-            else:
-                default_g_value = 2 if max_groups >= 2 else 1
+            db_saved_group_count = int(active_tour.get('group_count', 2))
 
-            # 위젯 상한선 최소 30으로 완전 개방하여 리셋 오류 원천 차단
-            absolute_max_limit = max(max_groups, default_g_value, 30)
+            session_g_key = f"fixed_g_num_{active_tour['id']}"
+            if session_g_key not in st.session_state:
+                st.session_state[session_g_key] = db_saved_group_count
 
-            num_groups = st.number_input(
+            absolute_max_limit = max(max_groups, db_saved_group_count, 50)
+
+            def update_db_group_count():
+                new_val = st.session_state[f"widget_g_num_{active_tour['id']}"]
+                st.session_state[session_g_key] = int(new_val)
+                try:
+                    conn = get_db_connection()
+                    cur = conn.cursor()
+                    cur.execute("UPDATE tournaments SET group_count = %s WHERE id = %s",
+                                (int(new_val), active_tour['id']))
+                    conn.commit()
+                    cur.close()
+                    conn.close()
+                except:
+                    pass
+
+            ui_num_groups = st.number_input(
                 "📋 생성할 조(Group) 갯수",
                 min_value=1,
                 max_value=int(absolute_max_limit),
-                value=int(default_g_value),
+                value=int(st.session_state[session_g_key]),
                 step=1,
+                key=f"widget_g_num_{active_tour['id']}",
+                on_change=update_db_group_count,
                 disabled=is_ui_disabled
             )
+
+            num_groups = int(st.session_state[session_g_key])
         else:
             num_groups = 1
 
@@ -186,9 +202,11 @@ def run_tab_play(get_db_connection):
         )
     st.markdown("---")
 
-    player_list = df_players.to_dict('records')
-    final_pool = []
+    if not player_list:
+        st.info("출전 선수가 부족하거나 선수 명단을 불러오는 중입니다. 잠시만 대기해 주세요. (최소 2명 필요)")
+        return
 
+    final_pool = []
     all_league_stats = {}
     for p in player_list:
         all_league_stats[p['id']] = {
@@ -200,9 +218,10 @@ def run_tab_play(get_db_connection):
     # 🪵 1. 예선 리그전(라운드로빈) 파트
     # ==========================================
     if game_method in ["라운드로빈(풀리그)", "혼합 방식 (리그 후 토너먼트)"]:
-        groups = [[] for _ in range(num_groups)]
+        current_active_groups = int(num_groups)
+        groups = [[] for _ in range(current_active_groups)]
         for idx, p in enumerate(player_list):
-            groups[idx % num_groups].append(p)
+            groups[idx % current_active_groups].append(p)
 
         def render_flat_score_board(group_idx, group_players):
             st.subheader(f"🏆 {group_idx + 1}조 예선 리그 결과 입력")
@@ -299,11 +318,11 @@ def run_tab_play(get_db_connection):
 
                 rank_stats.append({
                     "player_obj": p, "id": p['id'], "name": p['name'], "grade": p['grade'],
-                    "승": wins, "득실차": (set_gain - set_loss), "승자승점수": 0.0
+                    "승": wins, "득실차": (set_gain - set_loss), "승자승카운트": 0
                 })
 
             for i in range(len(rank_stats)):
-                h2h_bonus = 0
+                h2h_wins = 0
                 for j in range(len(rank_stats)):
                     if i == j: continue
                     if rank_stats[i]["승"] == rank_stats[j]["승"] and rank_stats[i]["득실차"] == rank_stats[j]["득실차"]:
@@ -313,21 +332,26 @@ def run_tab_play(get_db_connection):
                         s1, s2 = db_scores.get((group_idx, r1_id, r2_id), (0, 0))
                         if s1 != 0 or s2 != 0:
                             if (p1_id == r1_id and s1 > s2) or (p1_id == r2_id and s2 > s1):
-                                h2h_bonus += 0.1
-                rank_stats[i]["승자승점수"] = h2h_bonus
+                                h2h_wins += 1
+                rank_stats[i]["승자승카운트"] = h2h_wins
 
-            rank_stats_sorted = sorted(rank_stats, key=lambda x: (x["승"], x["득실차"], x["승자승점수"]), reverse=True)
+            # 💡 [안전빵 정수 정렬 구조 체택] 소수를 완전히 도려내고 정수 튜플축으로 안전 정렬
+            rank_stats_sorted = sorted(rank_stats, key=lambda x: (x["승"], x["득실차"], x["승자승카운트"]), reverse=True)
 
+            # 💡 [버그 완전 박멸]: 소수점 비교 버그를 제거하기 위해 승/득실/승자승을 문자열 마킹 코드로 만들어 칼같이 매핑
             computed_ranks = {}
-            current_rank = 1
             for idx, stat in enumerate(rank_stats_sorted):
-                if idx > 0:
+                if idx == 0:
+                    computed_ranks[stat["id"]] = 1
+                else:
                     prev = rank_stats_sorted[idx - 1]
-                    if stat["승"] == prev["승"] and stat["득실차"] == prev["득실차"] and stat["승자승점수"] == prev["승자승점수"]:
-                        pass
+                    current_tag = f"{stat['승']}_{stat['득실차']}_{stat['승자승카운트']}"
+                    prev_tag = f"{prev['승']}_{prev['득실차']}_{prev['승자승카운트']}"
+
+                    if current_tag == prev_tag:
+                        computed_ranks[stat["id"]] = computed_ranks[prev["id"]]
                     else:
-                        current_rank = idx + 1
-                computed_ranks[stat["id"]] = current_rank
+                        computed_ranks[stat["id"]] = idx + 1
 
             manual_key = f"m_rank_map_{active_tour['id']}_{group_idx}"
             if manual_key not in st.session_state:
