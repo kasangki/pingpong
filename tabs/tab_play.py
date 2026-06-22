@@ -82,8 +82,10 @@ def run_tab_play(get_db_connection):
     current_tour_status = active_tour['status']
 
     is_tournament_finished = (current_tour_status == 'finished')
+
+    # 💡 [요청 사항 반영]: 자동 새로고침 주기를 60초에서 120,000ms(2분)으로 전격 연장
     if not is_tournament_finished:
-        st_autorefresh(interval=60000, key="play_tab_refresh")
+        st_autorefresh(interval=120000, key="play_tab_refresh")
 
     try:
         conn = get_db_connection()
@@ -132,7 +134,7 @@ def run_tab_play(get_db_connection):
     if is_tournament_finished:
         st.success("🏆 이 대회는 최종 종료(마감)되었습니다. 자동 새로고침이 중지되었으며 성적 변경이 불가능합니다.")
     else:
-        st.info("📢 전광판 모드 활성화: 60초 주기로 다른 태블릿의 경기 점수가 화면에 실시간 자동 동기화됩니다.")
+        st.info("📢 전광판 모드 활성화: 2분 주기로 다른 태블릿의 경기 점수가 화면에 실시간 자동 동기화됩니다.")
 
     c_status, c_refresh = st.columns([5.5, 1.5])
     with c_status:
@@ -335,22 +337,21 @@ def run_tab_play(get_db_connection):
                                 h2h_wins += 1
                 rank_stats[i]["승자승카운트"] = h2h_wins
 
-            # 💡 [안전빵 정수 정렬 구조 체택] 소수를 완전히 도려내고 정수 튜플축으로 안전 정렬
+            # 성적 고정 기준 정렬 (승 -> 득실차 -> 승자승카운트 내림차순)
             rank_stats_sorted = sorted(rank_stats, key=lambda x: (x["승"], x["득실차"], x["승자승카운트"]), reverse=True)
 
-            # 💡 [버그 완전 박멸]: 소수점 비교 버그를 제거하기 위해 승/득실/승자승을 문자열 마킹 코드로 만들어 칼같이 매핑
+            # 💡 [버그 완전 해체 커스텀 랭킹 엔진]: 정방향 검증 카운팅 구조로 전면 교정
             computed_ranks = {}
             for idx, stat in enumerate(rank_stats_sorted):
                 if idx == 0:
                     computed_ranks[stat["id"]] = 1
                 else:
                     prev = rank_stats_sorted[idx - 1]
-                    current_tag = f"{stat['승']}_{stat['득실차']}_{stat['승자승카운트']}"
-                    prev_tag = f"{prev['승']}_{prev['득실차']}_{prev['승자승카운트']}"
-
-                    if current_tag == prev_tag:
+                    # 세 조건이 100% 한 치의 오차도 없이 일치할 때만 동률(공동 순위) 처리
+                    if stat["승"] == prev["승"] and stat["득실차"] == prev["득실차"] and stat["승자승카운트"] == prev["승자승카운트"]:
                         computed_ranks[stat["id"]] = computed_ranks[prev["id"]]
                     else:
+                        # 하나라도 다르면 무조건 정직하게 현재 인덱스+1 순위로 매칭 단절
                         computed_ranks[stat["id"]] = idx + 1
 
             manual_key = f"m_rank_map_{active_tour['id']}_{group_idx}"
